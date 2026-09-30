@@ -5,6 +5,7 @@ import type { Permission } from '../../shared/permissions';
 import { ROLE_LABELS } from '../../shared/permissions';
 import { api, ApiError } from '../api/client';
 import { useCan, useMe, useOnline } from '../api/hooks';
+import { clearDrafts, countDrafts } from '../lib/drafts';
 import { useRealtime } from '../lib/realtime';
 import { Spinner } from './ui';
 import { UpdatePrompt } from './UpdatePrompt';
@@ -247,10 +248,14 @@ function UserMenu() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const logout = async () => {
+    // 未送信の下書きはログアウトで消える(共有端末で次の人に残さない)ため、先に確認する
+    const drafts = countDrafts(me.data?.user.id);
+    if (drafts > 0 && !window.confirm(`この端末に未送信の下書きが ${drafts} 件あります。ログアウトすると下書きは削除されます。ログアウトしますか?`)) return;
     try {
       await api.post('/api/v1/auth/logout');
     } finally {
       await clearOfflineCaches();
+      clearDrafts();
       qc.clear();
       navigate('/login');
     }

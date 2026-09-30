@@ -190,13 +190,13 @@ export function BookingDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reschedule, setReschedule] = useState(false);
   const [restore, setRestore] = useState(false);
+  const [noShowConfirm, setNoShowConfirm] = useState(false);
   const [noteEdit, setNoteEdit] = useState<string | null>(null);
   const invalidate = [['booking', id], ['bookings'], ['today'], ['reception'], ['schedule']];
   const status = useApiMutation((to: string) => api.post(`/api/v1/bookings/${id}/status`, { to, expectedVersion: q.data?.version }), {
     invalidate,
     success: '状態を更新しました',
   });
-  const restoreM = useApiMutation(() => api.post(`/api/v1/bookings/${id}/restore`, {}), { invalidate, success: '予約を復元しました', onSuccess: () => setRestore(false) });
   const saveNote = useApiMutation((note: string) => api.patch(`/api/v1/bookings/${id}`, { internalNote: note, expectedVersion: q.data?.version }), {
     invalidate,
     success: '保存しました',
@@ -225,6 +225,12 @@ export function BookingDetailPage() {
         <Alert tone="warning">
           締切後のキャンセル/無断欠席です。回数券・プランを消化するかどうか確認してください。{' '}
           <Link to={`/app/bookings/${b.id}/consume`}>消化の確認へ</Link>
+        </Alert>
+      ) : null}
+      {b.consumptionReview === 'consumed' && b.status !== 'completed' ? (
+        <Alert tone="info">
+          締切後のキャンセル/無断欠席として、回数券・プランを1回消化済みです。{' '}
+          <Link to={`/app/bookings/${b.id}/consume`}>消化の内容・取消</Link>
         </Alert>
       ) : null}
       <div className="grid-2">
@@ -312,7 +318,7 @@ export function BookingDetailPage() {
               </Button>
             ) : null}
             {b.status === 'confirmed' || b.status === 'arrived' ? (
-              <Button variant="danger" disabled={!online} onClick={() => status.mutate('no_show')}>
+              <Button variant="danger" disabled={!online} onClick={() => setNoShowConfirm(true)}>
                 ! 無断欠席
               </Button>
             ) : null}
@@ -377,13 +383,16 @@ export function BookingDetailPage() {
       </Card>
       {cancelOpen ? <CancelDialog booking={b} onClose={() => setCancelOpen(false)} /> : null}
       {reschedule ? <RescheduleModal booking={b} onClose={() => setReschedule(false)} /> : null}
-      {restore ? (
+      {restore ? <RestoreDialog booking={b} canForce={can('booking.force')} onClose={() => setRestore(false)} /> : null}
+      {noShowConfirm ? (
         <ConfirmDialog
-          title="予約を復元しますか?"
-          message="同じ日時の枠を再確保できた場合のみ復元できます。"
-          busy={restoreM.isPending}
-          onConfirm={() => restoreM.mutate(undefined)}
-          onCancel={() => setRestore(false)}
+          title="無断欠席にしますか?"
+          danger
+          message={`${b.customerName} 様の予約を無断欠席にします。回数券・プランは自動では消化されません(運営ルールにより確認待ちになることがあります)。`}
+          confirmLabel="無断欠席にする"
+          busy={status.isPending}
+          onConfirm={() => status.mutate('no_show', { onSettled: () => setNoShowConfirm(false) })}
+          onCancel={() => setNoShowConfirm(false)}
         />
       ) : null}
       {noteEdit !== null ? (
@@ -392,6 +401,64 @@ export function BookingDetailPage() {
         </Modal>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * キャンセル/無断欠席の取り消し。同じ日時の枠を再確保できた場合のみ。
+ * 過去の日時・営業時間外など上書きできる理由だけで失敗したときは、強制予約の権限があれば理由を入れて復元できる
+ */
+function RestoreDialog({ booking, canForce, onClose }: { booking: BookingDto; canForce: boolean; onClose: () => void }) {
+  const [reason, setReason] = useState('');
+  const m = useApiMutation((force: boolean) => api.post(`/api/v1/bookings/${booking.id}/restore`, force ? { force: true, forceReason: reason } : {}), {
+    invalidate: [['booking', booking.id], ['bookings'], ['today'], ['reception'], ['schedule']],
+    success: '予約を復元しました',
+    onSuccess: onClose,
+    silentError: true,
+  });
+  const err = m.error as ApiError | null;
+  const violations: { code: string; hard: boolean; message: string }[] = err?.details?.violations ?? [];
+  const softOnly = err?.code === 'SLOT_UNAVAILABLE' && violations.length > 0 && violations.every((v) => !v.hard);
+  return (
+    <Modal
+      title="予約を復元しますか?"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>やめる</Button>
+          {softOnly && canForce ? (
+            <Button variant="primary" busy={m.isPending} disabled={!reason.trim()} onClick={() => m.mutate(true)}>
+              理由を記録して復元(強制)
+            </Button>
+          ) : (
+            <Button variant="primary" busy={m.isPending} onClick={() => m.mutate(false)}>
+              復元する
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="stack">
+        <p style={{ margin: 0 }}>
+          {booking.status === 'no_show' ? '無断欠席を取り消し、「来店済み」に戻します。' : 'キャンセルを取り消し、「来店待ち」に戻します。'}同じ日時の枠を再確保できた場合のみ復元できます。
+        </p>
+        {err ? <ErrorMessage error={err} /> : null}
+        {violations.length > 0 ? (
+          <ul className="small" style={{ margin: 0 }}>
+            {violations.map((v) => (
+              <li key={v.code}>
+                {v.message}
+                {v.hard ? '(上書きできません)' : ''}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {softOnly && canForce ? (
+          <TextAreaField label="強制する理由(監査ログに記録)" required value={reason} onChange={(e) => setReason(e.target.value)} hint="例: 誤って無断欠席にしたため。過去の日時などのルールを上書きして復元します。" />
+        ) : null}
+        {softOnly && !canForce ? <p className="small muted">ルールを上書きした復元はオーナー・マネージャーが行えます。</p> : null}
+      </div>
+    </Modal>
   );
 }
 

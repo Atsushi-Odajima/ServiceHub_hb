@@ -179,6 +179,32 @@ describe('横断検索', () => {
     expect(rc.customers).toEqual([]);
     expect((await ok(reception.get('/api/v1/search?q=ken'))).staff).toEqual([]);
   });
+
+  it('回数券(顧客名・券の名前)と拠点も権限の範囲で返す', async () => {
+    const product = await ok(owner.post('/api/v1/pass-products', { name: '検索用10回券', totalUses: 10, validityDays: 180, allServices: true, serviceIds: [] }));
+    const ike = await customer('回数券 池袋さん');
+    await book(IKE, cat.services.trial30, cat.staff.mika, D2, '11:00', ike);
+    const shin = await customer('回数券 新宿さん');
+    await book(SHIN, cat.services.personal60, cat.staff.ken, D, '11:00', shin);
+    const passIke = await ok(owner.post(`/api/v1/customers/${ike}/passes`, { passProductId: product.id, idempotencyKey: idem('grant') }));
+    const passShin = await ok(owner.post(`/api/v1/customers/${shin}/passes`, { passProductId: product.id, idempotencyKey: idem('grant') }));
+    // 顧客名で: その顧客の有効な回数券
+    const byCustomer = await ok(owner.get(`/api/v1/search?q=${encodeURIComponent('回数券 池袋')}`));
+    expect(byCustomer.passes.map((p: any) => p.id)).toEqual([passIke.id]);
+    expect(byCustomer.passes[0]).toMatchObject({ customerName: '回数券 池袋さん', name: '検索用10回券', remaining: 10 });
+    // 券の名前で: 見てよい顧客の分だけ(受付・Manager は池袋の顧客のみ)
+    const ownerByName = (await ok(owner.get(`/api/v1/search?q=${encodeURIComponent('検索用10回')}`))).passes.map((p: any) => p.id);
+    expect(ownerByName.sort()).toEqual([passIke.id, passShin.id].sort());
+    expect((await ok(reception.get(`/api/v1/search?q=${encodeURIComponent('検索用10回')}`))).passes.map((p: any) => p.id)).toEqual([passIke.id]);
+    expect((await ok(manager.get(`/api/v1/search?q=${encodeURIComponent('検索用10回')}`))).passes.map((p: any) => p.id)).toEqual([passIke.id]);
+    // LIKE の記号は文字として扱う
+    expect((await ok(owner.get(`/api/v1/search?q=${encodeURIComponent('%')}`))).passes).toEqual([]);
+    // 拠点: 名前・URL名で。担当外の拠点は返さない
+    expect((await ok(owner.get(`/api/v1/search?q=${encodeURIComponent('新宿')}`))).locations.map((l: any) => l.id)).toEqual([SHIN]);
+    expect((await ok(reception.get(`/api/v1/search?q=${encodeURIComponent('新宿')}`))).locations).toEqual([]);
+    const ikeLoc = (await ok(reception.get(`/api/v1/search?q=${encodeURIComponent('池袋')}`))).locations;
+    expect(ikeLoc.map((l: any) => l.id)).toEqual([IKE]);
+  });
 });
 
 describe('CSV 出力', () => {
@@ -208,6 +234,23 @@ describe('CSV 出力', () => {
     const ledger = parseCsv((await owner.get(`/api/v1/csv/export/pass-ledger?from=${REAL_FROM}&to=${REAL_TO}`)).body as string);
     const use = ledger.find((r) => r[6] === '利用')!;
     expect(use[7]).toBe('-1');
+  });
+
+  it('キャンセル・無断欠席: 区分・理由・日時・操作者・締切後か。拠点スコープ', async () => {
+    expectError(await owner.get('/api/v1/csv/export/cancellations'), 400, 'VALIDATION_ERROR');
+    const all = parseCsv((await owner.get(`/api/v1/csv/export/cancellations?from=${D}&to=${D}`)).body as string);
+    expect(all[0]).toEqual(['予約番号', '拠点', '予約の開始', 'サービス', '担当', '顧客ID', '顧客名', '区分', '理由', '日時', '操作者', '締切後キャンセル', '回数券・プランの消化', '受付経路']);
+    const rows = all.slice(1);
+    expect(rows.map((r) => r[7]).sort()).toEqual(['キャンセル(事業者)', 'キャンセル(顧客)', '無断欠席']);
+    // 完了・来店待ちの予約は含まない。日時と操作者(オーナーの表示名)が入る
+    expect(rows.every((r) => r[9] && r[10])).toBe(true);
+    const noShow = rows.find((r) => r[7] === '無断欠席')!;
+    expect(noShow[6]).toBe('KPI 欠席');
+    expect(noShow[1]).toBe('池袋店');
+    // Manager(池袋担当)は池袋の分だけ
+    const mine = parseCsv((await manager.get(`/api/v1/csv/export/cancellations?from=${D}&to=${D}`)).body as string).slice(1);
+    expect(mine.map((r) => r[7]).sort()).toEqual(['キャンセル(顧客)', '無断欠席']);
+    expect(mine.every((r) => r[1] === '池袋店')).toBe(true);
   });
 
   it('権限がない種類は出力できず、出力は監査ログに残る', async () => {

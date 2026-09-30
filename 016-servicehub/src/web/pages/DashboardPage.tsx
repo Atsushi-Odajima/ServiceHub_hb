@@ -30,6 +30,7 @@ interface Dashboard {
   }[];
   pendingReviews?: number;
   expiringPasses?: number;
+  planUsage?: { plans: number; remaining: number; endingSoonWithRemaining: number };
   failedNotifications?: number;
   mine?: { today: number; upcoming7: number; recordsMissing: { bookingId: string; customerName: string; serviceName: string; performedAt: string }[] };
 }
@@ -155,7 +156,7 @@ export function DashboardPage() {
       ) : null}
 
       {/* 要確認 */}
-      {d && (d.pendingReviews || d.expiringPasses || d.failedNotifications) ? (
+      {d && (d.pendingReviews || d.expiringPasses || d.failedNotifications || d.planUsage?.plans) ? (
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }} aria-label="要確認">
           {d.pendingReviews ? (
             <Badge tone="warning" icon="?">
@@ -166,6 +167,14 @@ export function DashboardPage() {
             <Link to="/app/passes">
               <Badge tone="warning" icon="▤">
                 14日以内に期限の回数券 {d.expiringPasses}件
+              </Badge>
+            </Link>
+          ) : null}
+          {d.planUsage?.plans ? (
+            <Link to="/app/plans">
+              <Badge tone={d.planUsage.endingSoonWithRemaining ? 'warning' : 'neutral'} icon="↻">
+                利用プランの今期の残り 合計{d.planUsage.remaining}回({d.planUsage.plans}件)
+                {d.planUsage.endingSoonWithRemaining ? ` ・ 7日以内に期間終了で残りあり ${d.planUsage.endingSoonWithRemaining}件` : ''}
               </Badge>
             </Link>
           ) : null}

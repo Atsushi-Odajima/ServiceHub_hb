@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES, type QuestionType } from '../../../shared/constants';
+import { ROLE_LABELS, type Role } from '../../../shared/permissions';
 import { weekdayLabel } from '../../../shared/time';
 import { api, qs, type ApiError } from '../../api/client';
 import { useApi, useApiMutation, useCan, useMe } from '../../api/hooks';
@@ -535,7 +536,7 @@ export function StaffPage() {
                 <td data-label="所属拠点">{s.locationIds.map((id) => cat.locations.find((l) => l.id === id)?.name).filter(Boolean).join('、') || '—'}</td>
                 <td data-label="対応サービス">{s.serviceIds.length}件</td>
                 <td data-label="受付">{s.acceptsBookings ? '受付可' : <Badge tone="warning">受付停止</Badge>}</td>
-                <td data-label="ログイン">{s.login ? `${s.login.role}${s.login.status !== 'active' ? '(無効)' : ''}` : '—'}</td>
+                <td data-label="ログイン">{s.login ? `${ROLE_LABELS[s.login.role as Role] ?? s.login.role}${s.login.status !== 'active' ? '(無効)' : ''}` : '—'}</td>
                 <td data-label="操作">
                   <Button size="sm" onClick={() => setEdit(s)}>
                     編集
@@ -724,6 +725,20 @@ function ResourceEditModal({ res, locations, onClose }: { res: ResourceDto | nul
     { invalidate: [['resources']], success: '保存しました', onSuccess: onClose },
   );
   const archive = useApiMutation(() => api.post(`/api/v1/resources/${res!.id}/archive`), { invalidate: [['resources']], success: 'アーカイブしました', onSuccess: onClose });
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  if (confirmArchive && res) {
+    return (
+      <ConfirmDialog
+        title={`${res.name} をアーカイブしますか?`}
+        danger
+        message="アーカイブすると一覧に表示されず、新しい予約に使われなくなります。画面から元に戻すことはできません(一時的に使わない場合は「停止中」や停止期間を使ってください)。既存の予約は自動では変更されません。"
+        confirmLabel="アーカイブする"
+        busy={archive.isPending}
+        onConfirm={() => archive.mutate(undefined)}
+        onCancel={() => setConfirmArchive(false)}
+      />
+    );
+  }
   return (
     <Modal
       title={res ? `${res.name} を編集` : 'リソースを追加'}
@@ -731,7 +746,7 @@ function ResourceEditModal({ res, locations, onClose }: { res: ResourceDto | nul
       footer={
         <>
           {res ? (
-            <Button variant="danger" onClick={() => archive.mutate(undefined)}>
+            <Button variant="danger" onClick={() => setConfirmArchive(true)}>
               アーカイブ
             </Button>
           ) : null}

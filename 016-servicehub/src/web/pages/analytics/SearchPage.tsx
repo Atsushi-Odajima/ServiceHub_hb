@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { qs } from '../../api/client';
-import { useApi, useCan } from '../../api/hooks';
+import { useApi, useCan, useMe } from '../../api/hooks';
 import { Card, EmptyState, ErrorMessage, PageHeader, Spinner, StatusBadge } from '../../components/ui';
-import { fmtDateTime } from '../../lib/format';
+import { fmtDate, fmtDateTime } from '../../lib/format';
 import type { BookingDto } from '../bookings/BookingPages';
 
 interface SearchResult {
@@ -11,11 +11,15 @@ interface SearchResult {
   bookings?: BookingDto[];
   staff: { id: string; name: string }[];
   services: { id: string; name: string }[];
+  passes?: { id: string; customerId: string; customerName: string; name: string; remaining: number; expiresOn: string | null }[];
+  locations: { id: string; name: string; slug: string }[];
 }
 
-/** 横断検索: 顧客(氏名・かな・電話・メール)・予約番号・スタッフ・サービス */
+/** 横断検索: 顧客(氏名・かな・電話・メール)・予約番号・スタッフ・サービス・回数券・拠点 */
 export function SearchPage() {
   const can = useCan();
+  const me = useMe();
+  const orgSlug = me.data?.organization?.slug ?? '';
   const [params, setParams] = useSearchParams();
   const [text, setText] = useState(params.get('q') ?? '');
   const [debounced, setDebounced] = useState(text);
@@ -28,10 +32,10 @@ export function SearchPage() {
   }, [text, setParams]);
   const q = useApi<SearchResult>(['search', debounced], debounced ? `/api/v1/search${qs({ q: debounced })}` : null);
   const r = q.data;
-  const empty = r && (r.customers?.length ?? 0) + (r.bookings?.length ?? 0) + r.staff.length + r.services.length === 0;
+  const empty = r && (r.customers?.length ?? 0) + (r.bookings?.length ?? 0) + r.staff.length + r.services.length + (r.passes?.length ?? 0) + r.locations.length === 0;
   return (
     <div className="stack-lg">
-      <PageHeader title="検索" sub="顧客(氏名・フリガナ・電話番号の下4桁・メール)、予約番号、スタッフ、サービス。権限のある範囲だけを表示します。" />
+      <PageHeader title="検索" sub="顧客(氏名・フリガナ・電話番号の下4桁・メール)、予約番号、スタッフ、サービス、回数券(顧客名・券の名前)、拠点。権限のある範囲だけを表示します。" />
       <div className="field">
         <label htmlFor="global-search" className="field-label">
           検索語
@@ -86,6 +90,43 @@ export function SearchPage() {
                   </span>
                   <span className="small muted">{c.lastVisitAt ? `最終来店 ${new Date(c.lastVisitAt).toLocaleDateString('ja-JP')}` : '来店なし'}</span>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+      {r?.passes && r.passes.length > 0 ? (
+        <Card title="回数券(有効なもの)">
+          <ul className="list">
+            {r.passes.map((p) => (
+              <li key={p.id}>
+                <Link className="list-item" to={`/app/passes/${p.id}`}>
+                  <span className="grow">
+                    <strong>{p.customerName}</strong> ・ {p.name}
+                  </span>
+                  <span className="small">
+                    残り {p.remaining}回{p.expiresOn ? ` ・ 期限 ${fmtDate(p.expiresOn)}` : ''}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+      {r && r.locations.length > 0 ? (
+        <Card title="拠点">
+          <ul className="list">
+            {r.locations.map((l) => (
+              <li key={l.id} className="list-item">
+                <span className="grow">{l.name}</span>
+                <a className="small" href={`/p/${orgSlug}/${l.slug}`} target="_blank" rel="noopener">
+                  予約ページ ›
+                </a>
+                {can('location.manage') || can('location.schedule.manage') ? (
+                  <Link className="small" to={`/app/settings/locations/${l.id}`}>
+                    設定 ›
+                  </Link>
+                ) : null}
               </li>
             ))}
           </ul>

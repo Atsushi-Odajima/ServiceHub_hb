@@ -24,6 +24,7 @@
     "backup:create": "tsx src/server/cli/backup.ts create",
     "backup:verify": "tsx src/server/cli/backup.ts verify",
     "backup:restore": "tsx src/server/cli/backup.ts restore",
+    "reset:password": "tsx src/server/cli/reset-password.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

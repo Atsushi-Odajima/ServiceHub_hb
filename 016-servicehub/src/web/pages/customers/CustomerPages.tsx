@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { PASS_ENTRY_LABELS } from '../../../shared/constants';
 import { api, qs, type ApiError } from '../../api/client';
-import { useApi, useApiMutation, useCan, useMe } from '../../api/hooks';
+import { useApi, useApiMutation, useCan, useMe, useOnline } from '../../api/hooks';
+import { DraftNotice, DraftStatus } from '../../components/DraftNotice';
 import {
   Alert,
   Badge,
@@ -16,10 +17,12 @@ import {
   SelectField,
   Spinner,
   Stat,
+  StatusBadge,
   Tabs,
   TextAreaField,
   TextField,
 } from '../../components/ui';
+import { useDraft } from '../../lib/drafts';
 import { fmtDate, fmtDateTime } from '../../lib/format';
 import { BookingFormModal } from '../bookings/BookingForm';
 import type { BookingDto } from '../bookings/BookingPages';
@@ -122,7 +125,9 @@ interface CustomerDetail extends CustomerListItem {
 
 function CustomerEditModal({ customer, onClose, onSaved }: { customer?: CustomerDetail; onClose: () => void; onSaved?: (id: string) => void }) {
   const me = useMe();
-  const [f, setF] = useState({
+  const online = useOnline();
+  // 入力はこの端末に下書きとして保存する(通信が切れても失われない。顧客情報が更新されたら古い下書きは使わない)
+  const draft = useDraft('customer', customer ? `${customer.id}.v${customer.version}` : 'new', {
     name: customer?.name ?? '',
     nameKana: customer?.nameKana ?? '',
     phone: customer?.phone ?? '',
@@ -131,8 +136,10 @@ function CustomerEditModal({ customer, onClose, onSaved }: { customer?: Customer
     memo: customer?.memo ?? '',
     preferredLocationId: customer?.preferredLocationId ?? '',
   });
+  const f = draft.value;
+  const setF = draft.setAll;
   const save = useApiMutation(
-    () => {
+    async () => {
       const body = {
         name: f.name,
         nameKana: f.nameKana || null,
@@ -142,7 +149,9 @@ function CustomerEditModal({ customer, onClose, onSaved }: { customer?: Customer
         memo: f.memo || null,
         preferredLocationId: f.preferredLocationId || null,
       };
-      return customer ? api.patch(`/api/v1/customers/${customer.id}`, { ...body, expectedVersion: customer.version }) : api.post('/api/v1/customers', body);
+      const res = await (customer ? api.patch(`/api/v1/customers/${customer.id}`, { ...body, expectedVersion: customer.version }) : api.post('/api/v1/customers', body));
+      draft.clear();
+      return res;
     },
     {
       invalidate: [['customers'], ['customer', customer?.id]],
@@ -160,14 +169,16 @@ function CustomerEditModal({ customer, onClose, onSaved }: { customer?: Customer
       onClose={onClose}
       footer={
         <>
+          <DraftStatus savedAt={draft.savedAt} />
           <Button onClick={onClose}>閉じる</Button>
-          <Button variant="primary" busy={save.isPending} disabled={!f.name} onClick={() => save.mutate(undefined)}>
+          <Button variant="primary" busy={save.isPending} disabled={!f.name || !online} onClick={() => save.mutate(undefined)}>
             保存する
           </Button>
         </>
       }
     >
       <div className="stack">
+        <DraftNotice restoredAt={draft.restored?.savedAt ?? null} online={online} submitLabel="保存する" onDiscard={draft.discard} />
         <ErrorMessage error={err} />
         <div className="grid-2">
           <TextField label="氏名" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required error={err?.fields?.name} />
@@ -478,7 +489,7 @@ function CustomerBookings({ customerId }: { customerId: string }) {
               <td data-label="拠点">{b.locationName}</td>
               <td data-label="担当">{b.staffName ?? '—'}</td>
               <td data-label="状態">
-                <Badge tone="neutral">{b.status}</Badge>
+                <StatusBadge status={b.status} />
               </td>
             </tr>
           ))}
@@ -490,17 +501,26 @@ function CustomerBookings({ customerId }: { customerId: string }) {
 
 function Notes({ customerId, tz, disabled }: { customerId: string; tz: string; disabled: boolean }) {
   const can = useCan();
-  const [body, setBody] = useState('');
-  const [visibility, setVisibility] = useState<'general' | 'confidential'>('general');
+  const online = useOnline();
+  // 書きかけのメモはこの端末に下書きとして保存する
+  const draft = useDraft('customer-note', customerId, { body: '', visibility: 'general' });
+  const body = draft.value.body;
+  const visibility = draft.value.visibility as 'general' | 'confidential';
   const tl = useApi<{ items: { kind: string; at: string; refId: string; title: string; detail: any; actor: string | null }[] }>(
     ['customer-timeline', customerId],
     `/api/v1/customers/${customerId}/timeline`,
   );
-  const add = useApiMutation(() => api.post(`/api/v1/customers/${customerId}/notes`, { body, visibility }), {
-    invalidate: [['customer-timeline', customerId]],
-    success: 'メモを追加しました',
-    onSuccess: () => setBody(''),
-  });
+  const add = useApiMutation(
+    async () => {
+      const res = await api.post(`/api/v1/customers/${customerId}/notes`, { body, visibility });
+      draft.discard();
+      return res;
+    },
+    {
+      invalidate: [['customer-timeline', customerId]],
+      success: 'メモを追加しました',
+    },
+  );
   const del = useApiMutation((noteId: string) => api.del(`/api/v1/customers/${customerId}/notes/${noteId}`), {
     invalidate: [['customer-timeline', customerId]],
     success: '削除しました',
@@ -509,19 +529,20 @@ function Notes({ customerId, tz, disabled }: { customerId: string; tz: string; d
   return (
     <div className="stack">
       {!disabled && (can('customer.note.general') || can('customer.note.confidential')) ? (
-        <Card title="メモを追加">
-          <TextAreaField label="内容" value={body} onChange={(e) => setBody(e.target.value)} maxLength={4000} hint="医療情報(病歴・症状など)は記録しないでください" />
+        <Card title="メモを追加" actions={<DraftStatus savedAt={draft.savedAt} />}>
+          <DraftNotice restoredAt={draft.restored?.savedAt ?? null} online={online} submitLabel="追加" onDiscard={draft.discard} />
+          <TextAreaField label="内容" value={body} onChange={(e) => draft.set('body', e.target.value)} maxLength={4000} hint="医療情報(病歴・症状など)は記録しないでください" />
           <SelectField
             label="公開範囲"
             value={visibility}
-            onChange={(e) => setVisibility(e.target.value as typeof visibility)}
+            onChange={(e) => draft.set('visibility', e.target.value)}
             options={[
               ...(can('customer.note.general') ? [{ value: 'general', label: '一般(受付を含むスタッフ全員)' }] : []),
               ...(can('customer.note.confidential') ? [{ value: 'confidential', label: '機密(受付には表示しない)' }] : []),
             ]}
           />
           <div className="form-actions">
-            <Button variant="primary" disabled={!body.trim()} busy={add.isPending} onClick={() => add.mutate(undefined)}>
+            <Button variant="primary" disabled={!body.trim() || !online} busy={add.isPending} onClick={() => add.mutate(undefined)}>
               追加
             </Button>
           </div>

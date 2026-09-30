@@ -9,6 +9,7 @@ const entries = [
   'src/server/cli/setup-org.ts',
   'src/server/cli/seed-sample.ts',
   'src/server/cli/backup.ts',
+  'src/server/cli/reset-password.ts',
 ].filter((f) => existsSync(f));
 
 await build({

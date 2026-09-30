@@ -162,7 +162,7 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
     return withTenant(pool, { orgId: ctx.orgId, userId: ctx.userId }, async (q) => {
       const id = await insertCustomer(q, ctx.orgId, body, 'staff', ctx.membershipId);
       await writeAudit(q, ctx.orgId, actorOf(ctx), { action: 'customer.created', targetType: 'customer', targetId: id, after: { name: body.name }, requestId: req.id });
-      const dupes = await findDuplicates(q, ctx.orgId, id);
+      const dupes = await findDuplicates(q, ctx.orgId, id, { ctx, now: clock.now() });
       return { ...customerDto(await loadCustomer(q, ctx.orgId, id)), duplicateCandidates: dupes.length };
     });
   });
@@ -193,7 +193,7 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
           GROUP BY location_id ORDER BY n DESC LIMIT 1`,
         [ctx.orgId, id],
       );
-      const dupes = c.status === 'active' ? await findDuplicates(q, ctx.orgId, id) : [];
+      const dupes = c.status === 'active' ? await findDuplicates(q, ctx.orgId, id, { ctx, now: clock.now() }) : [];
       return {
         ...customerDto(c),
         // 内部メモ(顧客レコードのメモ)は一般メモ扱い。機密メモは customer_notes(visibility=confidential)
@@ -325,7 +325,7 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
     const { id } = parse(z.object({ id: zUuid }), req.params);
     return withTenant(pool, { orgId: ctx.orgId }, async (q) => {
       await assertCustomerVisible(q, ctx, id, clock.now());
-      return { items: await findDuplicates(q, ctx.orgId, id) };
+      return { items: await findDuplicates(q, ctx.orgId, id, { ctx, now: clock.now() }) };
     });
   });
 
@@ -501,21 +501,27 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
   });
 }
 
-/** 重複候補: 同じメール/電話/氏名(正規化)の有効顧客。自動統合はしない */
-export async function findDuplicates(q: Q, orgId: string, id: string) {
+/**
+ * 重複候補: 同じメール/電話/氏名(正規化)の有効顧客。自動統合はしない。
+ * viewer を渡すと、その人が見てよい顧客(担当拠点・担当スタッフの範囲)だけを返す(他拠点の顧客の連絡先を出さない)
+ */
+export async function findDuplicates(q: Q, orgId: string, id: string, viewer?: { ctx: AuthContext; now: Date }) {
   const c = await q.maybeOne<{ email_normalized: string | null; phone_normalized: string | null; name_norm: string }>(
     'SELECT email_normalized, phone_normalized, name_norm FROM customers WHERE organization_id = $1 AND id = $2',
     [orgId, id],
   );
   if (!c) return [];
+  const params: unknown[] = [orgId, id, c.email_normalized, c.phone_normalized, c.name_norm];
+  const vis = viewer ? await customerVisibility(q, viewer.ctx, 'x', params, viewer.now) : 'TRUE';
   const rows = await q.many<{ id: string; name: string; email: string | null; phone: string | null; created_at: Date; reason_email: boolean; reason_phone: boolean; reason_name: boolean }>(
-    `SELECT id, name, email, phone, created_at,
-            (email_normalized = $3) AS reason_email, (phone_normalized = $4) AS reason_phone, (name_norm = $5) AS reason_name
-       FROM customers
-      WHERE organization_id = $1 AND id <> $2 AND status = 'active'
-        AND ((email_normalized = $3) OR (phone_normalized = $4 AND length($4) >= 8) OR (name_norm = $5 AND length($5) >= 2))
-      ORDER BY created_at LIMIT 20`,
-    [orgId, id, c.email_normalized, c.phone_normalized, c.name_norm],
+    `SELECT x.id, x.name, x.email, x.phone, x.created_at,
+            (x.email_normalized = $3) AS reason_email, (x.phone_normalized = $4) AS reason_phone, (x.name_norm = $5) AS reason_name
+       FROM customers x
+      WHERE x.organization_id = $1 AND x.id <> $2 AND x.status = 'active'
+        AND ((x.email_normalized = $3) OR (x.phone_normalized = $4 AND length($4) >= 8) OR (x.name_norm = $5 AND length($5) >= 2))
+        AND ${vis}
+      ORDER BY x.created_at, x.id LIMIT 20`,
+    params,
   );
   return rows.map((r) => ({
     id: r.id,

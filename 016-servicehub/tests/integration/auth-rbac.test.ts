@@ -25,6 +25,18 @@ describe('Phase1: authentication', () => {
     expect(me.body.locations.map((l: any) => l.id)).toEqual([A.locations[0].id]);
   });
 
+  it('users can change only their own display name (audited)', async () => {
+    const s = await login(t.app, A.users.staff.email);
+    expectError(await s.patch('/api/v1/auth/me', { displayName: '   ' }), 400, 'VALIDATION_ERROR');
+    const r = await s.patch('/api/v1/auth/me', { displayName: '新しい 表示名' });
+    expect(r.status).toBe(200);
+    expect((await s.get('/api/v1/auth/me')).body.user.name).toBe('新しい 表示名');
+    const owner = await login(t.app, A.users.owner.email);
+    const logs = await owner.get('/api/v1/audit?action=user.profile_updated');
+    expect(logs.body.items[0]).toMatchObject({ before: { displayName: expect.any(String) }, after: { displayName: '新しい 表示名' } });
+    expect((await anonymous(t.app).patch('/api/v1/auth/me', { displayName: 'x' })).status).toBe(401);
+  });
+
   it('wrong password is rejected without revealing account existence', async () => {
     const r1 = await anonymous(t.app).post('/api/v1/auth/login', { email: A.users.owner.email, password: 'wrong-password-x' });
     const r2 = await anonymous(t.app).post('/api/v1/auth/login', { email: 'nobody@test.example', password: 'wrong-password-x' });

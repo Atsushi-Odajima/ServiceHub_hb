@@ -86,6 +86,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'member.enabled': 'メンバー有効化',
   'member.password_reset_link_issued': 'パスワード再設定リンク発行',
   'user.password_changed': 'パスワード変更',
+  'user.profile_updated': '表示名の変更',
   'org.settings_updated': '組織設定変更',
   'notification.retried': '通知の再送',
   'backup.created': 'バックアップ作成',

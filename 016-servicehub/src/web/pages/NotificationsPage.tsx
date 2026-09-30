@@ -22,6 +22,7 @@ const SKIP: Record<string, string> = {
   booking_not_active: '予約が有効でない',
   booking_rescheduled: '日時変更済み',
   booking_canceled: 'キャンセル済み',
+  restored_from_backup: 'バックアップから復元したため送信しない',
 };
 
 export function NotificationsPage() {

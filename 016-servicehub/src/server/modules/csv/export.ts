@@ -1,15 +1,17 @@
 import { toDateTime, localDayRange } from '../../../shared/time.js';
+import { CHANNEL_LABELS } from '../../../shared/constants.js';
 import type { Permission } from '../../../shared/permissions.js';
 import { type AuthContext, can } from '../../auth/context.js';
 import type { Q } from '../../db/tx.js';
 import { customerVisibility } from '../customers/visibility.js';
 
-export const EXPORT_KINDS = ['customers', 'bookings', 'services', 'staff', 'pass-ledger', 'plan-ledger', 'records'] as const;
+export const EXPORT_KINDS = ['customers', 'bookings', 'cancellations', 'services', 'staff', 'pass-ledger', 'plan-ledger', 'records'] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 export const EXPORT_PERMS: Record<ExportKind, Permission> = {
   customers: 'csv.export.customers',
   bookings: 'csv.export.bookings',
+  cancellations: 'csv.export.bookings',
   services: 'csv.export.master',
   staff: 'csv.export.master',
   'pass-ledger': 'csv.export.ledger',
@@ -20,6 +22,7 @@ export const EXPORT_PERMS: Record<ExportKind, Permission> = {
 export const EXPORT_LABELS: Record<ExportKind, string> = {
   customers: '顧客',
   bookings: '予約',
+  cancellations: 'キャンセル・無断欠席',
   services: 'サービス',
   staff: 'スタッフ',
   'pass-ledger': '回数券台帳',
@@ -28,7 +31,7 @@ export const EXPORT_LABELS: Record<ExportKind, string> = {
 };
 
 /** 期間指定が必要な種類 */
-export const PERIOD_KINDS: ReadonlySet<ExportKind> = new Set(['bookings', 'pass-ledger', 'plan-ledger', 'records']);
+export const PERIOD_KINDS: ReadonlySet<ExportKind> = new Set(['bookings', 'cancellations', 'pass-ledger', 'plan-ledger', 'records']);
 
 export interface ExportFilters {
   from?: string;
@@ -62,6 +65,12 @@ const STATUS_JA: Record<string, string> = {
   merged: '統合済み',
   anonymized: '匿名化済み',
   voided: '取消',
+};
+
+const REVIEW_JA: Record<string, string> = {
+  pending: '確認待ち',
+  consumed: '消化した',
+  waived: '消化しない',
 };
 
 const ENTRY_JA: Record<string, string> = {
@@ -120,12 +129,47 @@ export async function buildExport(q: Q, ctx: AuthContext, kind: ExportKind, f: E
           r.customer_name,
           r.party_size,
           STATUS_JA[r.status] ?? r.status,
-          r.channel,
+          CHANNEL_LABELS[r.channel] ?? r.channel,
           r.forced,
           r.cancel_reason,
           r.cancel_late === null ? null : r.cancel_late,
           r.consumption_kind === 'pass' ? '回数券' : r.consumption_kind === 'plan' ? '利用プラン' : null,
           fmt(r.created_at, r.tz),
+        ],
+      };
+    case 'cancellations':
+      // キャンセル(顧客/事業者)と無断欠席。区分・理由・日時・操作者(予約の履歴から)・締切後か・回数券/プランの消化の確認
+      return {
+        header: ['予約番号', '拠点', '予約の開始', 'サービス', '担当', '顧客ID', '顧客名', '区分', '理由', '日時', '操作者', '締切後キャンセル', '回数券・プランの消化', '受付経路'],
+        sql: `SELECT b.code, b.location_snapshot->>'name' AS location_name, coalesce(b.location_snapshot->>'timezone', $5) AS tz, b.starts_at,
+                     b.service_snapshot->>'name' AS service_name, b.staff_snapshot->>'displayName' AS staff_name, b.customer_id, c.name AS customer_name,
+                     b.status, b.cancel_reason, coalesce(b.canceled_at, b.no_show_at) AS happened_at, b.cancel_late, b.consumption_review, b.consumption_kind, b.channel,
+                     ev.actor_type, ev.actor_label
+                FROM bookings b JOIN customers c ON c.id = b.customer_id AND c.organization_id = b.organization_id
+                LEFT JOIN LATERAL (
+                  SELECT e.actor_type, e.actor_label FROM booking_events e
+                   WHERE e.organization_id = b.organization_id AND e.booking_id = b.id AND e.to_status = b.status
+                   ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+                ) ev ON true
+               WHERE b.organization_id = $1 AND b.starts_at >= $2 AND b.starts_at < $3 AND ($4::uuid[] IS NULL OR b.location_id = ANY($4::uuid[]))
+                 AND b.status IN ('canceled_customer', 'canceled_business', 'no_show')
+               ORDER BY b.starts_at, b.id`,
+        params: [ctx.orgId, range!.start, range!.end, locFilter, tz],
+        row: (r) => [
+          r.code,
+          r.location_name,
+          fmt(r.starts_at, r.tz),
+          r.service_name,
+          r.staff_name,
+          r.customer_id,
+          r.customer_name,
+          STATUS_JA[r.status] ?? r.status,
+          r.cancel_reason,
+          fmt(r.happened_at, r.tz),
+          r.actor_type === 'customer' ? '顧客(予約管理ページ)' : r.actor_type === 'system' ? 'システム' : r.actor_label,
+          r.cancel_late === null ? null : r.cancel_late,
+          r.consumption_kind === 'pass' ? '回数券を消化' : r.consumption_kind === 'plan' ? '利用プランを消化' : r.consumption_review ? REVIEW_JA[r.consumption_review] : null,
+          CHANNEL_LABELS[r.channel] ?? r.channel,
         ],
       };
     case 'services':

@@ -85,10 +85,11 @@ async function verifyTurnstile(deps: Deps, token: string | undefined, remoteIp: 
   if (!deps.config.TURNSTILE_SECRET_KEY) return true;
   if (!token) return false;
   try {
-    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    const res = await fetch(deps.config.TURNSTILE_VERIFY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ secret: deps.config.TURNSTILE_SECRET_KEY, response: token, remoteip: remoteIp }),
+      signal: AbortSignal.timeout(8000),
     });
     const data = (await res.json()) as { success?: boolean };
     return Boolean(data.success);

@@ -51,7 +51,7 @@ function orgToday(ctx: AuthContext, now: Date): string {
   return todayIn(ctx.orgTimezone, now);
 }
 
-interface PassRow {
+export interface PassRow {
   id: string;
   customer_id: string;
   customer_name?: string;
@@ -66,7 +66,7 @@ interface PassRow {
   version: number;
 }
 
-function passDto(p: PassRow, today: string) {
+export function passDto(p: PassRow, today: string) {
   const expired = p.status === 'expired' || (p.expires_on !== null && p.expires_on < today);
   return {
     id: p.id,

@@ -137,6 +137,7 @@ function conflictError(conflicts: Conflict[]): AppError {
 export async function registerShiftRoutes(app: FastifyInstance, deps: Deps): Promise<void> {
   const { pool } = deps;
 
+  // locationId 指定時: その拠点のシフトと、その拠点に所属するスタッフの他拠点のシフト(画面で「*」表示。担当拠点の範囲内のみ)
   app.get('/api/v1/shifts', async (req) => {
     const ctx = requireAuth(req, 'shift.read.all', 'shift.read.own', 'shift.manage');
     const qy = parse(z.object({ from: zIso, to: zIso, locationId: zUuid.optional(), staffId: zUuid.optional() }), req.query);
@@ -147,7 +148,7 @@ export async function registerShiftRoutes(app: FastifyInstance, deps: Deps): Pro
       const rows = await q.many<ShiftRow>(
         `SELECT sh.* FROM staff_shifts sh
           WHERE sh.organization_id = $1 AND sh.starts_at >= $2::timestamptz - interval '2 days' AND sh.starts_at < $3 AND sh.ends_at > $2
-            AND ($4::uuid IS NULL OR sh.location_id = $4 OR (sh.location_id IS NULL AND EXISTS (SELECT 1 FROM staff_locations x WHERE x.staff_id = sh.staff_id AND x.location_id = $4)))
+            AND ($4::uuid IS NULL OR sh.location_id = $4 OR EXISTS (SELECT 1 FROM staff_locations x WHERE x.staff_id = sh.staff_id AND x.location_id = $4))
             AND ($5::uuid IS NULL OR sh.staff_id = $5)
             AND ($6::uuid[] IS NULL OR sh.location_id = ANY($6::uuid[])
                  OR (sh.location_id IS NULL AND EXISTS (SELECT 1 FROM staff_locations y WHERE y.staff_id = sh.staff_id AND y.location_id = ANY($6::uuid[]))))

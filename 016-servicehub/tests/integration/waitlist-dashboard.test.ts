@@ -276,10 +276,12 @@ describe('期限・権限・テナント分離・ダッシュボード', () => {
     expect(o).toHaveProperty('failedNotifications');
     const shin = o.locations.find((l: any) => l.id === SHIN);
     expect(shin.waitlistActive).toBeGreaterThan(0);
+    expect(o.planUsage).toMatchObject({ plans: expect.any(Number), remaining: expect.any(Number), endingSoonWithRemaining: expect.any(Number) });
     const r = await ok(reception.get('/api/v1/dashboard'));
     expect(r.locations.map((l: any) => l.id)).toEqual([IKE]);
     expect(r).not.toHaveProperty('pendingReviews');
     expect(r).not.toHaveProperty('failedNotifications');
+    expect(r).not.toHaveProperty('planUsage');
     const s = await ok(staff.get('/api/v1/dashboard'));
     expect(s).not.toHaveProperty('locations');
     expect(s.mine).toMatchObject({ today: expect.any(Number), upcoming7: expect.any(Number) });

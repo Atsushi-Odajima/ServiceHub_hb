@@ -7,10 +7,11 @@ import { useToast } from '../../components/Toast';
 import { Alert, Badge, Button, Card, EmptyState, ErrorMessage, PageHeader, SelectField, TextField } from '../../components/ui';
 import { fmtDateTime } from '../../lib/format';
 
-type ExportKind = 'customers' | 'bookings' | 'services' | 'staff' | 'pass-ledger' | 'plan-ledger' | 'records';
+type ExportKind = 'customers' | 'bookings' | 'cancellations' | 'services' | 'staff' | 'pass-ledger' | 'plan-ledger' | 'records';
 const EXPORTS: { kind: ExportKind; label: string; perm: Permission; period: boolean; note: string }[] = [
   { kind: 'customers', label: '顧客', perm: 'csv.export.customers', period: false, note: '氏名・連絡先・タグ・メモ・来店日(統合済み・匿名化は「すべて」で含む)' },
   { kind: 'bookings', label: '予約', perm: 'csv.export.bookings', period: true, note: '開始日で期間を指定。状態・キャンセル区分・消化の有無' },
+  { kind: 'cancellations', label: 'キャンセル・無断欠席', perm: 'csv.export.bookings', period: true, note: '予約の開始日で期間を指定。区分・理由・日時・操作者・締切後か・消化の確認' },
   { kind: 'services', label: 'サービス', perm: 'csv.export.master', period: false, note: '所要時間・定員・提供拠点・担当スタッフ' },
   { kind: 'staff', label: 'スタッフ', perm: 'csv.export.master', period: false, note: '所属拠点・対応サービス' },
   { kind: 'pass-ledger', label: '回数券台帳', perm: 'csv.export.ledger', period: true, note: '付与・利用・取消戻し・調整・失効(記録日で期間を指定)' },

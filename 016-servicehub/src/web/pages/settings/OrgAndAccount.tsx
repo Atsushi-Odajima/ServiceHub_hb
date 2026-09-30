@@ -177,6 +177,13 @@ export function OrgSettingsPage() {
 
 export function AccountPage() {
   const me = useMe();
+  const [name, setName] = useState<string | null>(null);
+  const rename = useApiMutation((displayName: string) => api.patch('/api/v1/auth/me', { displayName }), {
+    invalidate: [['me']],
+    success: '表示名を変更しました',
+    onSuccess: () => setName(null),
+  });
+  const renameErr = rename.error as ApiError | null;
   const [cur, setCur] = useState('');
   const [next, setNext] = useState('');
   const [next2, setNext2] = useState('');
@@ -193,7 +200,34 @@ export function AccountPage() {
   return (
     <div className="stack-lg">
       <PageHeader title="アカウント" />
-      <Card title="ログイン情報">
+      <Card
+        title="ログイン情報"
+        actions={
+          name === null ? (
+            <Button size="sm" onClick={() => setName(me.data?.user.name ?? '')}>
+              表示名を変更
+            </Button>
+          ) : null
+        }
+      >
+        {name !== null ? (
+          <form
+            className="stack"
+            style={{ marginBottom: 12 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (name.trim()) rename.mutate(name.trim());
+            }}
+          >
+            <TextField label="表示名" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required error={renameErr?.fields?.displayName} hint="画面上部・担当者名・監査ログなどに表示されます" />
+            <div className="row">
+              <Button type="submit" variant="primary" busy={rename.isPending} disabled={!name.trim()}>
+                保存する
+              </Button>
+              <Button onClick={() => setName(null)}>やめる</Button>
+            </div>
+          </form>
+        ) : null}
         <dl className="kv">
           <dt>表示名</dt>
           <dd>{me.data?.user.name}</dd>

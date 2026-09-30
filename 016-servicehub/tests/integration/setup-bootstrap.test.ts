@@ -4,13 +4,14 @@
  * - 入力が不正なら作らない。パスワードはログに出さない。サンプル組織は SEED_SAMPLE_ON_START=true のときだけ
  * - サンプル組織は本番の組織に触れずに削除でき、サンプル専用のログイン(公開パスワード)も消える
  */
+import { execFileSync } from 'node:child_process';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app.js';
 import { migrate } from '../../src/server/db/migrate.js';
 import { createPool } from '../../src/server/db/pool.js';
 import { withSystem } from '../../src/server/db/tx.js';
-import { FakeClock } from '../../src/server/deps.js';
+import { FakeClock, systemClock } from '../../src/server/deps.js';
 import { LogMailer } from '../../src/server/email/mailer.js';
 import { deleteSampleOrganization, SAMPLE_SLUG } from '../../src/server/sample/seed.js';
 import { bootstrapFromEnv } from '../../src/server/setup.js';
@@ -102,6 +103,30 @@ describe('環境変数による初回セットアップ', () => {
     }
   });
 
+  it('運用担当者はコマンドでパスワード再設定リンクを発行できる(メール未設定でオーナーが1人の場合の復旧)', async () => {
+    const out = execFileSync(process.execPath, ['--import', 'tsx', 'src/server/cli/reset-password.ts', '--email', 'OWNER@my-salon.example', '--hours', '2'], {
+      env: { ...process.env, DATABASE_URL: URL2, APP_BASE_URL: 'http://localhost:3000' },
+      encoding: 'utf8',
+    });
+    const m = out.match(/reset-password\?token=([A-Za-z0-9_-]+)/);
+    expect(m).toBeTruthy();
+    // リンクの期限は DB の現在時刻で決まるため、実時間の時計で確認する
+    const app = await buildApp({ ...t.deps, pool, clock: systemClock, mailer: new LogMailer(false) }, { serveStatic: false, logger: false });
+    try {
+      const res = await app.inject({ method: 'POST', url: '/api/v1/auth/password-reset/confirm', payload: { token: m![1], password: 'recovered-pass-2031' }, headers: { origin: 'http://localhost:3000' } });
+      expect(res.statusCode).toBe(200);
+      await login(app, 'owner@my-salon.example', 'recovered-pass-2031');
+      const again = await app.inject({ method: 'POST', url: '/api/v1/auth/password-reset/confirm', payload: { token: m![1], password: 'another-pass-2031' }, headers: { origin: 'http://localhost:3000' } });
+      expect(again.statusCode).toBe(404); // 1回限り
+    } finally {
+      await app.close();
+    }
+    const audit = await withSystem(pool, (q) => q.one<{ n: number }>(`SELECT count(*)::int AS n FROM audit_logs WHERE action = 'member.password_reset_link_issued' AND actor_type = 'operator'`));
+    expect(audit.n).toBe(1);
+    // 存在しないメールは失敗(終了コード 1)
+    expect(() => execFileSync(process.execPath, ['--import', 'tsx', 'src/server/cli/reset-password.ts', '--email', 'nobody@example.com'], { env: { ...process.env, DATABASE_URL: URL2 }, stdio: 'pipe' })).toThrow();
+  });
+
   it('SEED_SAMPLE_ON_START=true でサンプル組織を1回だけ作る', async () => {
     await bootstrapFromEnv(pool, opts(), { SEED_SAMPLE_ON_START: 'true' });
     await bootstrapFromEnv(pool, opts(), { SEED_SAMPLE_ON_START: 'true' });
@@ -125,7 +150,7 @@ describe('環境変数による初回セットアップ', () => {
     try {
       const res = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email: 'owner@sample-wellness.example', password: 'sample-pass-2026' }, headers: { origin: 'http://localhost:3000' } });
       expect(res.statusCode).toBe(401);
-      await login(app, 'owner@my-salon.example', 'first-owner-pass-2030');
+      await login(app, 'owner@my-salon.example', 'recovered-pass-2031'); // 上のテストで再設定したパスワード
     } finally {
       await app.close();
     }

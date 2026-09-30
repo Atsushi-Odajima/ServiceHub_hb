@@ -219,6 +219,24 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: Deps): Prom
     return { ok: true };
   });
 
+  // ---- 表示名の変更(本人のみ。画面上部・監査ログ・担当者名などに使われる) ----
+  app.patch('/api/v1/auth/me', async (req) => {
+    const u = requireUser(req);
+    const body = parse(z.object({ displayName: z.string().trim().min(1, '表示名を入力してください').max(100) }), req.body);
+    const before = await withSystem(pool, async (q) => {
+      const row = await q.one<{ display_name: string }>('SELECT display_name FROM users WHERE id = $1', [u.userId]);
+      await q.exec('UPDATE users SET display_name = $2 WHERE id = $1', [u.userId, body.displayName]);
+      return row.display_name;
+    });
+    const ctx = req.session ? contextFromSession(req.session) : null;
+    if (ctx && before !== body.displayName) {
+      await withTenant(pool, { orgId: ctx.orgId }, (q) =>
+        writeAudit(q, ctx.orgId, actorOf(ctx), { action: 'user.profile_updated', targetType: 'user', targetId: u.userId, before: { displayName: before }, after: { displayName: body.displayName } }),
+      );
+    }
+    return { ok: true, displayName: body.displayName };
+  });
+
   // ---- 招待の受諾 ----
   app.get('/api/v1/auth/invitations/:token', async (req) => {
     const { token } = req.params as { token: string };

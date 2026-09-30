@@ -494,6 +494,15 @@ describe('Phase4: 完了・実施記録・次回予約・受付', () => {
     const r = await ok(manager.post(`/api/v1/bookings/${b1.id}/consume`, { kind: 'pass', entitlementId: p.id, idempotencyKey: idem('x'), reason: '規約に基づき消化' }));
     expect(r.balanceAfter).toBe(7);
     expect((await ok(owner.get(`/api/v1/bookings/${b1.id}`))).consumptionReview).toBe('consumed');
+    // 消化の取消(+1)で確認待ちに戻り、完了画面の情報(消化・取消の権限)も戻る
+    const comp = await ok(owner.get(`/api/v1/bookings/${b1.id}/completion`));
+    expect(comp.consumption).toMatchObject({ kind: 'pass', balanceAfter: 7 });
+    expect(comp.permissions.reverse).toBe(true);
+    const back = await ok(owner.post(`/api/v1/bookings/${b1.id}/consumption/reverse`, { reason: '判断を見直し' }));
+    expect(back.balanceAfter).toBe(8);
+    expect((await ok(owner.get(`/api/v1/bookings/${b1.id}`))).consumptionReview).toBe('pending');
+    expect((await ok(owner.get(`/api/v1/bookings/${b1.id}/completion`))).consumption).toBeNull();
+    await ok(manager.post(`/api/v1/bookings/${b1.id}/consume`, { kind: 'pass', entitlementId: p.id, idempotencyKey: idem('x2'), reason: '規約に基づき消化' }));
     // 無断欠席 → 確認待ち → 消化しない
     await setClock(at(D, '19:30'));
     const ns = await ok(owner.post(`/api/v1/bookings/${b2.id}/status`, { to: 'no_show' }));

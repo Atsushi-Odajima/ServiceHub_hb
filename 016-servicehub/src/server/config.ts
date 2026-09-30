@@ -29,6 +29,8 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   TURNSTILE_SITE_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
+  // 検証先(通常は変更しない。テストで検証サーバーを差し替えるため)
+  TURNSTILE_VERIFY_URL: z.string().url().default('https://challenges.cloudflare.com/turnstile/v0/siteverify'),
   BACKUP_ENCRYPTION_KEY: z.string().min(16, 'BACKUP_ENCRYPTION_KEY must be at least 16 characters').optional(),
   BACKUP_UPLOAD_MAX_MB: z.coerce.number().int().min(1).max(2048).default(200),
   WORKER_POLL_MS: z.coerce.number().int().min(200).max(60000).default(5000),
@@ -67,6 +69,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     c.COOKIE_SECURE === 'auto' ? c.APP_BASE_URL.startsWith('https://') : c.COOKIE_SECURE === 'true';
   if (isProduction && c.SESSION_SECRET.includes('change-me')) {
     throw new Error('SESSION_SECRET must be changed for production');
+  }
+  // 片方だけだと、画面に確認欄が出ないのにサーバーが確認を求めて公開予約がすべて失敗する(またはその逆)
+  if (Boolean(c.TURNSTILE_SITE_KEY) !== Boolean(c.TURNSTILE_SECRET_KEY)) {
+    throw new Error('TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY must be set together (Cloudflare Turnstile のサイトキーとシークレットキーは両方設定してください)');
   }
   if (c.EMAIL_PROVIDER === 'smtp' && !c.SMTP_URL) {
     throw new Error('SMTP_URL is required when EMAIL_PROVIDER=smtp');

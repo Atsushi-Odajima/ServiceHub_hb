@@ -3,8 +3,9 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ROLE_LABELS } from '../../../shared/permissions';
 import { api, ApiError, setCsrfToken } from '../../api/client';
-import { useApi, useMe } from '../../api/hooks';
+import { useApi, useMe, type Me } from '../../api/hooks';
 import { clearOfflineCaches } from '../../components/Layout';
+import { clearDrafts } from '../../lib/drafts';
 import { Alert, Button, Checkbox, ErrorMessage, Spinner, TextField } from '../../components/ui';
 
 function AuthCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -47,6 +48,9 @@ export function LoginPage() {
       // 共有端末で前の利用者の閲覧キャッシュ(個人情報)が見えないように、ログインのたびに消す
       await clearOfflineCaches();
       qc.clear();
+      // 端末内の下書きは、ログインした本人の分(セッション切れで入り直した場合など)だけ残す
+      const me = await api.get<Me>('/api/v1/auth/me').catch(() => null);
+      clearDrafts(me?.user.id);
       await qc.invalidateQueries({ queryKey: ['me'] });
       navigate(safeNext(params.get('next')), { replace: true });
     } catch (e2) {

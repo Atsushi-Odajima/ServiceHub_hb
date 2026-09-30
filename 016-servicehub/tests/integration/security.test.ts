@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app.js';
 import { createBackup } from '../../src/server/backup/dump.js';
 import { verifyBackup } from '../../src/server/backup/verify.js';
+import { EXPORT_KINDS } from '../../src/server/modules/csv/export.js';
 import { withSystem, withSystemForOrg, withTenant } from '../../src/server/db/tx.js';
 import { SAMPLE_PASSWORD, SAMPLE_SLUG, seedSampleOrganization, type SampleIds } from '../../src/server/sample/seed.js';
 import { anonymous, createOrgFixture, login, makeTestContext, TEST_ORIGIN, type ApiSession, type OrgFixture, type TestContext } from './helpers.js';
@@ -200,7 +201,7 @@ describe('テナント分離(登録済みの全API)', () => {
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       for (const m of aMarkers) if (text.includes(m)) leaked.push(`${r.url}: ${m.slice(0, 12)}`);
     }
-    for (const kind of ['customers', 'bookings', 'services', 'staff', 'pass-ledger', 'plan-ledger', 'records']) {
+    for (const kind of EXPORT_KINDS) {
       const res = await ownerB.get(`/api/v1/csv/export/${kind}?from=2020-01-01&to=2020-12-31&status=all`);
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       for (const m of aMarkers) if (text.includes(m)) leaked.push(`csv ${kind}: ${m.slice(0, 12)}`);

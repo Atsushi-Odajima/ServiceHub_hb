@@ -6,6 +6,7 @@ import { addDays, formatDateTimeJa, isoWeekday, localTimeOf, todayIn, weekdayLab
 import { api, ApiError, newIdempotencyKey, qs } from '../../api/client';
 import { useApi } from '../../api/hooks';
 import { Alert, Button, Checkbox, EmptyState, ErrorMessage, SelectField, Spinner, TextAreaField, TextField } from '../../components/ui';
+import { TurnstileWidget, useTurnstileSiteKey } from '../../components/Turnstile';
 
 interface PublicLocation {
   organization: { slug: string; name: string; isSample: boolean };
@@ -45,11 +46,13 @@ interface Question {
   required: boolean;
 }
 
-function PublicShell({ title, sub, children, sample }: { title: string; sub?: string; children: React.ReactNode; sample?: boolean }) {
+/** 拠点の予約ページのテーマカラーは見出し上部の帯に使う(文字色には使わないのでコントラストに影響しない) */
+function PublicShell({ title, sub, children, sample, theme }: { title: string; sub?: string; children: React.ReactNode; sample?: boolean; theme?: string }) {
+  const color = theme && /^#[0-9a-fA-F]{6}$/.test(theme) ? theme : undefined;
   return (
     <div className="public">
       {sample ? <div className="banner banner-sample">これはサンプルの予約ページです。実際の予約は成立しません(メールも送信されません)。</div> : null}
-      <header className="public-header">
+      <header className="public-header" style={color ? { borderTop: `6px solid ${color}` } : undefined}>
         <div className="inner">
           <div style={{ fontWeight: 800, fontSize: '1.15rem' }}>{title}</div>
           {sub ? <div className="muted small">{sub}</div> : null}
@@ -118,6 +121,9 @@ export function PublicBookingPage() {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [agree, setAgree] = useState(false);
   const [website, setWebsite] = useState('');
+  const turnstile = useTurnstileSiteKey();
+  const [botToken, setBotToken] = useState<string | null>(null);
+  const [botReset, setBotReset] = useState(0);
   const [result, setResult] = useState<any>(null);
   const [submitErr, setSubmitErr] = useState<ApiError | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -215,6 +221,7 @@ export function PublicBookingPage() {
         answers: Object.entries(answers).map(([questionId, value]) => ({ questionId, value })),
         idempotencyKey: idemRef.current,
         formToken: formToken.current,
+        ...(turnstile.siteKey ? { turnstileToken: botToken ?? undefined } : {}),
         website,
         agree: true,
       });
@@ -222,6 +229,8 @@ export function PublicBookingPage() {
       go('done');
     } catch (e) {
       const err = e as ApiError;
+      // 確認のトークンは1回限り。失敗したら確認をやり直す
+      if (turnstile.siteKey) setBotReset((n) => n + 1);
       if (err.code === 'SLOT_UNAVAILABLE') {
         // 別の方が先に予約した等: 日時選択へ戻り最新の空きを表示(冪等キーは新しくする)
         idemRef.current = null;
@@ -240,7 +249,7 @@ export function PublicBookingPage() {
   };
 
   return (
-    <PublicShell title={`${d.organization.name} ${d.location.name}`} sub="Web予約" sample={d.organization.isSample}>
+    <PublicShell title={`${d.organization.name} ${d.location.name}`} sub="Web予約" sample={d.organization.isSample} theme={d.location.page.themeColor}>
       {step !== 'done' ? (
         <ol className="steps" aria-label="予約の手順">
           {steps.map((s, i) => (
@@ -483,6 +492,7 @@ export function PublicBookingPage() {
             {d.location.phone ? `(${d.location.phone})` : ''}。
           </p>
           <Checkbox label="上記の内容と注意事項を確認しました" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+          {turnstile.siteKey ? <TurnstileWidget siteKey={turnstile.siteKey} onToken={setBotToken} resetKey={botReset} /> : null}
           <ErrorMessage error={submitErr} />
           {submitErr?.isNetwork ? (
             <Alert tone="warning">通信が途切れたため、予約が完了したか確認できませんでした。もう一度「予約する」を押しても二重予約にはなりません。</Alert>
@@ -491,7 +501,7 @@ export function PublicBookingPage() {
             <Button onClick={() => go('info')} disabled={submitting}>
               ‹ 戻る
             </Button>
-            <Button variant="primary" size="lg" busy={submitting} disabled={!agree} onClick={() => void submit()}>
+            <Button variant="primary" size="lg" busy={submitting} disabled={!agree || turnstile.loading || (Boolean(turnstile.siteKey) && !botToken)} onClick={() => void submit()}>
               予約する
             </Button>
           </div>
@@ -781,6 +791,9 @@ export function PublicWaitlistPage() {
   const [note, setNote] = useState('');
   const [agree, setAgree] = useState(false);
   const [website, setWebsite] = useState('');
+  const turnstile = useTurnstileSiteKey();
+  const [botToken, setBotToken] = useState<string | null>(null);
+  const [botReset, setBotReset] = useState(0);
   const [err, setErr] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ dateFrom: string; dateTo: string } | null>(null);
@@ -816,6 +829,7 @@ export function PublicWaitlistPage() {
         note: note || null,
         customer: { name: customer.name, nameKana: customer.nameKana || null, email: customer.email, phone: customer.phone },
         formToken: token.data?.formToken ?? '',
+        ...(turnstile.siteKey ? { turnstileToken: botToken ?? undefined } : {}),
         website,
         agree: true,
       });
@@ -824,12 +838,13 @@ export function PublicWaitlistPage() {
     } catch (e) {
       setErr(e as ApiError);
       void token.refetch();
+      if (turnstile.siteKey) setBotReset((n) => n + 1);
     } finally {
       setBusy(false);
     }
   };
   return (
-    <PublicShell title={`${d.organization.name} ${d.location.name}`} sub="キャンセル待ち" sample={d.organization.isSample}>
+    <PublicShell title={`${d.organization.name} ${d.location.name}`} sub="キャンセル待ち" sample={d.organization.isSample} theme={d.location.page?.themeColor}>
       {!d.location.allowWaitlist ? (
         <Alert tone="info">この店舗ではWebからのキャンセル待ち登録を受け付けていません。お電話でお問い合わせください{d.location.phone ? `(${d.location.phone})` : ''}。</Alert>
       ) : done ? (
@@ -853,7 +868,7 @@ export function PublicWaitlistPage() {
           noValidate
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            if (valid) void submit();
+            if (valid && (!turnstile.siteKey || botToken)) void submit();
           }}
         >
           <h1 style={{ fontSize: '1.15rem' }}>キャンセル待ちに登録</h1>
@@ -904,12 +919,13 @@ export function PublicWaitlistPage() {
             </label>
           </div>
           <Checkbox label="空きが出ても自動では予約されないこと(先着順)を確認しました" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+          {turnstile.siteKey ? <TurnstileWidget siteKey={turnstile.siteKey} onToken={setBotToken} resetKey={botReset} /> : null}
           <ErrorMessage error={err} />
           <div className="row-between">
             <Link className="btn" to={`/p/${org}/${loc}`}>
               ‹ 予約ページへ
             </Link>
-            <Button type="submit" variant="primary" busy={busy} disabled={!valid || !token.data}>
+            <Button type="submit" variant="primary" busy={busy} disabled={!valid || !token.data || turnstile.loading || (Boolean(turnstile.siteKey) && !botToken)}>
               登録する
             </Button>
           </div>

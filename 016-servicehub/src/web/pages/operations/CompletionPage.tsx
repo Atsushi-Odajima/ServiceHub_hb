@@ -1,9 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { localToUtcLenient } from '../../../shared/time';
 import { api, newIdempotencyKey } from '../../api/client';
 import { useApi, useApiMutation, useOnline } from '../../api/hooks';
+import { DraftNotice, DraftStatus } from '../../components/DraftNotice';
 import { Alert, Badge, Button, Card, Checkbox, ConfirmDialog, ErrorMessage, Modal, PageHeader, Spinner, StatusBadge, TextAreaField, TextField } from '../../components/ui';
+import { useDraft, useStoredDraft } from '../../lib/drafts';
 import { fmtDate, fmtDateTime, fmtTime, localDateOf, localTimeOf } from '../../lib/format';
 import type { BookingDto } from '../bookings/BookingPages';
 import { CandidatePicker, parseChoice } from '../entitlements/EntitlementPanels';
@@ -33,6 +35,43 @@ interface Completion {
   permissions: { writeRecord: boolean; consumePass: boolean; consumePlan: boolean; reverse: boolean; voidRecord: boolean; review: boolean };
 }
 
+type CompleteDraft = { startTime: string; duration: string; internalMemo: string; customerMemo: string; nextOn: string; nextNote: string };
+
+/** 下書きを送る前に予約の状態が変わった(他の端末で完了・キャンセルされた等)とき、送れなかった内容を見せる */
+function LeftoverDraft({ draft, savedAt, onDiscard }: { draft: CompleteDraft; savedAt: string; onDiscard: () => void }) {
+  const rows: [string, string][] = [
+    ['内部メモ', draft.internalMemo],
+    ['お客様向けメモ', draft.customerMemo],
+    ['次回のおすすめ日', draft.nextOn],
+    ['次回のメモ', draft.nextNote],
+  ];
+  return (
+    <Alert tone="warning">
+      <div className="stack">
+        <span>
+          この端末に<strong>送信されていない下書き</strong>({new Date(savedAt).toLocaleString('ja-JP')} 保存)がありますが、その後この予約の状態が変わったため、下書きは保存されていません。
+          必要な内容は実施記録の「編集」などで入力し直してください。
+        </span>
+        <dl className="kv">
+          {rows
+            .filter(([, v]) => v)
+            .map(([k, v]) => (
+              <div key={k} style={{ display: 'contents' }}>
+                <dt>{k}</dt>
+                <dd style={{ whiteSpace: 'pre-wrap' }}>{v}</dd>
+              </div>
+            ))}
+        </dl>
+        <div>
+          <Button size="sm" onClick={onDiscard}>
+            下書きを破棄
+          </Button>
+        </div>
+      </div>
+    </Alert>
+  );
+}
+
 function describe(c: Candidate | undefined): string {
   if (!c) return '';
   return `${c.name}から1回消化します(残り ${c.remaining} → ${c.remaining - 1})`;
@@ -42,6 +81,17 @@ function describe(c: Candidate | undefined): string {
 export function CompletionPage() {
   const { id = '' } = useParams();
   const q = useApi<Completion>(['booking', id, 'completion'], `/api/v1/bookings/${id}/completion`);
+  const online = useOnline();
+  const wasOffline = useRef(false);
+  // 通信が戻ったら最新の状態(予約の状態・版・消化の候補)を読み直す。下書きの送信はその後に行う
+  useEffect(() => {
+    if (!online) wasOffline.current = true;
+    else if (wasOffline.current) {
+      wasOffline.current = false;
+      void q.refetch();
+    }
+  }, [online, q]);
+  const leftover = useStoredDraft<CompleteDraft>('complete', id, `${q.data?.booking.status ?? ''}:${q.data?.booking.version ?? ''}`);
   if (q.isLoading) return <Spinner />;
   if (q.error) return <ErrorMessage error={q.error} retry={() => void q.refetch()} />;
   const c = q.data!;
@@ -60,10 +110,12 @@ export function CompletionPage() {
         }
         actions={<StatusBadge status={b.status} size="lg" />}
       />
+      {!active && leftover.draft ? <LeftoverDraft draft={leftover.draft.data} savedAt={leftover.draft.savedAt} onDiscard={leftover.discard} /> : null}
       {active ? <CompleteForm c={c} /> : null}
       {b.status === 'completed' ? <CompletedView c={c} /> : null}
       {review ? <ReviewPanel c={c} /> : null}
-      {!active && b.status !== 'completed' && !review ? (
+      {!active && b.status !== 'completed' && !review && b.consumptionReview === 'consumed' && c.consumption ? <ReviewedConsumption c={c} /> : null}
+      {!active && b.status !== 'completed' && !review && !(b.consumptionReview === 'consumed' && c.consumption) ? (
         <Alert tone="info">
           この予約は{b.consumptionReview === 'waived' ? '「消化しない」と確認済み' : b.consumptionReview === 'consumed' ? '消化済み' : '完了・消化の対象ではありません'}。
         </Alert>
@@ -82,12 +134,16 @@ function CompleteForm({ c }: { c: Completion }) {
   const navigate = useNavigate();
   const date = localDateOf(b.startsAt, tz);
   const startDefault = b.serviceStartedAt ?? b.arrivedAt ?? b.startsAt;
-  const [startTime, setStartTime] = useState(localTimeOf(startDefault, tz));
-  const [duration, setDuration] = useState(String(b.durationMin ?? ''));
-  const [internalMemo, setInternalMemo] = useState('');
-  const [customerMemo, setCustomerMemo] = useState('');
-  const [nextOn, setNextOn] = useState('');
-  const [nextNote, setNextNote] = useState('');
+  // 入力はこの端末に下書きとして保存する(通信が切れても失われない。送信は完了の操作で)
+  const draft = useDraft<CompleteDraft>('complete', b.id, {
+    startTime: localTimeOf(startDefault, tz),
+    duration: String(b.durationMin ?? ''),
+    internalMemo: '',
+    customerMemo: '',
+    nextOn: '',
+    nextNote: '',
+  });
+  const { startTime, duration, internalMemo, customerMemo, nextOn, nextNote } = draft.value;
   const candidates: Candidate[] = [...(c.permissions.consumePass ? c.candidates.passes : []), ...(c.permissions.consumePlan ? c.candidates.plans : [])];
   const [choice, setChoice] = useState<string | null>(c.consumptionPrompt === 'manual' || candidates.length === 0 ? 'none' : null);
   const [confirm, setConfirm] = useState(false);
@@ -95,10 +151,10 @@ function CompleteForm({ c }: { c: Completion }) {
   const selected = parseChoice(choice);
   const selectedCandidate = candidates.find((x) => selected && x.kind === selected.kind && x.id === selected.entitlementId);
   const m = useApiMutation(
-    () => {
+    async () => {
       const started = localToUtcLenient(date, startTime, tz);
       const dur = duration === '' ? null : Number(duration);
-      return api.post(`/api/v1/bookings/${b.id}/complete`, {
+      const res = await api.post(`/api/v1/bookings/${b.id}/complete`, {
         expectedVersion: b.version,
         record: {
           startedAt: started.toISOString(),
@@ -110,6 +166,9 @@ function CompleteForm({ c }: { c: Completion }) {
         },
         consume: selected ? { ...selected, idempotencyKey: key.current } : null,
       });
+      // 保存できたら下書きを消す(画面の再読み込みより前に)
+      draft.clear();
+      return res;
     },
     {
       invalidate: [['booking', b.id], ['bookings'], ['today'], ['reception'], ['schedule'], ['passes'], ['plans']],
@@ -121,19 +180,20 @@ function CompleteForm({ c }: { c: Completion }) {
   const mustChoose = candidates.length > 0 && choice === null;
   return (
     <>
-      <Card title="実施内容">
+      <DraftNotice restoredAt={draft.restored?.savedAt ?? null} online={online} submitLabel={selected ? '完了して1回消化' : '完了にする'} onDiscard={draft.discard} />
+      <Card title="実施内容" actions={<DraftStatus savedAt={draft.savedAt} />}>
         <div className="stack">
           <div className="grid-2">
-            <TextField label="開始時刻" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} hint={fmtDate(date)} />
-            <TextField label="所要時間(分)" type="number" inputMode="numeric" min={0} value={duration} onChange={(e) => setDuration(e.target.value)} />
+            <TextField label="開始時刻" type="time" value={startTime} onChange={(e) => draft.set('startTime', e.target.value)} hint={fmtDate(date)} />
+            <TextField label="所要時間(分)" type="number" inputMode="numeric" min={0} value={duration} onChange={(e) => draft.set('duration', e.target.value)} />
           </div>
           {c.permissions.writeRecord ? (
             <>
-              <TextAreaField label="内部メモ(スタッフのみ)" value={internalMemo} onChange={(e) => setInternalMemo(e.target.value)} hint="施術・指導の内容など。医療情報や診断の記録には使わないでください。" />
-              <TextAreaField label="お客様向けメモ" value={customerMemo} onChange={(e) => setCustomerMemo(e.target.value)} hint="ご自宅でのストレッチなど、お客様にお伝えした内容" />
+              <TextAreaField label="内部メモ(スタッフのみ)" value={internalMemo} onChange={(e) => draft.set('internalMemo', e.target.value)} hint="施術・指導の内容など。医療情報や診断の記録には使わないでください。" />
+              <TextAreaField label="お客様向けメモ" value={customerMemo} onChange={(e) => draft.set('customerMemo', e.target.value)} hint="ご自宅でのストレッチなど、お客様にお伝えした内容" />
               <div className="grid-2">
-                <TextField label="次回のおすすめ日(任意)" type="date" value={nextOn} onChange={(e) => setNextOn(e.target.value)} />
-                <TextField label="次回のメモ(任意)" value={nextNote} onChange={(e) => setNextNote(e.target.value)} />
+                <TextField label="次回のおすすめ日(任意)" type="date" value={nextOn} onChange={(e) => draft.set('nextOn', e.target.value)} />
+                <TextField label="次回のメモ(任意)" value={nextNote} onChange={(e) => draft.set('nextNote', e.target.value)} />
               </div>
             </>
           ) : (
@@ -142,7 +202,11 @@ function CompleteForm({ c }: { c: Completion }) {
         </div>
       </Card>
       <Card title="回数券・利用プランの消化">
-        {candidates.length === 0 ? (
+        {c.consumptionPrompt === 'manual' && candidates.length > 0 ? (
+          <p className="small muted" style={{ margin: 0 }}>
+            この組織の設定(完了時は表示しない)により、ここでは消化しません。消化する場合は、完了後にこの画面の「1回消化する」から行ってください。
+          </p>
+        ) : candidates.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>
             この予約に使える回数券・利用プランはありません。
           </p>
@@ -312,21 +376,29 @@ function CompletedView({ c }: { c: Completion }) {
 }
 
 function EditRecordModal({ rec, bookingId, tz, onClose }: { rec: RecordDto; bookingId: string; tz: string; onClose: () => void }) {
-  const [internalMemo, setInternalMemo] = useState(rec.internalMemo ?? '');
-  const [customerMemo, setCustomerMemo] = useState(rec.customerMemo ?? '');
-  const [duration, setDuration] = useState(rec.durationMin !== null ? String(rec.durationMin) : '');
-  const [nextOn, setNextOn] = useState(rec.nextRecommendedOn ?? '');
-  const [nextNote, setNextNote] = useState(rec.nextRecommendedNote ?? '');
+  const online = useOnline();
+  // 編集中の内容はこの端末に下書きとして保存する(記録の版ごと。記録が更新されたら古い下書きは使わない)
+  const draft = useDraft('record', `${rec.id}.v${rec.version}`, {
+    internalMemo: rec.internalMemo ?? '',
+    customerMemo: rec.customerMemo ?? '',
+    duration: rec.durationMin !== null ? String(rec.durationMin) : '',
+    nextOn: rec.nextRecommendedOn ?? '',
+    nextNote: rec.nextRecommendedNote ?? '',
+  });
+  const { internalMemo, customerMemo, duration, nextOn, nextNote } = draft.value;
   const m = useApiMutation(
-    () =>
-      api.patch(`/api/v1/records/${rec.id}`, {
+    async () => {
+      const res = await api.patch(`/api/v1/records/${rec.id}`, {
         expectedVersion: rec.version,
         internalMemo: internalMemo || null,
         customerMemo: customerMemo || null,
         durationMin: duration === '' ? null : Number(duration),
         nextRecommendedOn: nextOn || null,
         nextRecommendedNote: nextNote || null,
-      }),
+      });
+      draft.clear();
+      return res;
+    },
     { invalidate: [['booking', bookingId]], success: '保存しました', onSuccess: onClose },
   );
   return (
@@ -336,21 +408,23 @@ function EditRecordModal({ rec, bookingId, tz, onClose }: { rec: RecordDto; book
       onClose={onClose}
       footer={
         <>
+          <DraftStatus savedAt={draft.savedAt} />
           <Button onClick={onClose}>やめる</Button>
-          <Button variant="primary" busy={m.isPending} onClick={() => m.mutate(undefined)}>
+          <Button variant="primary" busy={m.isPending} disabled={!online} onClick={() => m.mutate(undefined)}>
             保存
           </Button>
         </>
       }
     >
       <div className="stack">
+        <DraftNotice restoredAt={draft.restored?.savedAt ?? null} online={online} submitLabel="保存" onDiscard={draft.discard} />
         <p className="small muted">実施: {fmtDateTime(rec.performedAt, tz)}</p>
-        <TextField label="所要時間(分)" type="number" inputMode="numeric" value={duration} onChange={(e) => setDuration(e.target.value)} />
-        <TextAreaField label="内部メモ(スタッフのみ)" value={internalMemo} onChange={(e) => setInternalMemo(e.target.value)} />
-        <TextAreaField label="お客様向けメモ" value={customerMemo} onChange={(e) => setCustomerMemo(e.target.value)} />
+        <TextField label="所要時間(分)" type="number" inputMode="numeric" value={duration} onChange={(e) => draft.set('duration', e.target.value)} />
+        <TextAreaField label="内部メモ(スタッフのみ)" value={internalMemo} onChange={(e) => draft.set('internalMemo', e.target.value)} />
+        <TextAreaField label="お客様向けメモ" value={customerMemo} onChange={(e) => draft.set('customerMemo', e.target.value)} />
         <div className="grid-2">
-          <TextField label="次回のおすすめ日" type="date" value={nextOn} onChange={(e) => setNextOn(e.target.value)} />
-          <TextField label="次回のメモ" value={nextNote} onChange={(e) => setNextNote(e.target.value)} />
+          <TextField label="次回のおすすめ日" type="date" value={nextOn} onChange={(e) => draft.set('nextOn', e.target.value)} />
+          <TextField label="次回のメモ" value={nextNote} onChange={(e) => draft.set('nextNote', e.target.value)} />
         </div>
         <ErrorMessage error={m.error} />
       </div>
@@ -421,6 +495,36 @@ function VoidRecordModal({ rec, bookingId, consumed, canReverse, onClose }: { re
         <ErrorMessage error={m.error} />
       </div>
     </Modal>
+  );
+}
+
+/** 締切後キャンセル・無断欠席で消化済みの予約: 消化の内容と取消(+1)。取り消すと再び「消化確認待ち」に戻る */
+function ReviewedConsumption({ c }: { c: Completion }) {
+  const b = c.booking;
+  const online = useOnline();
+  const [reverse, setReverse] = useState(false);
+  return (
+    <Card title="回数券・利用プラン">
+      <div className="stack">
+        <p style={{ margin: 0 }}>
+          <Badge tone="success" icon="✓">
+            消化済み
+          </Badge>{' '}
+          {b.status === 'no_show' ? '無断欠席' : '締切後キャンセル'}として {c.consumption!.name} から1回消化しました(消化後の残り {c.consumption!.balanceAfter}回)。
+        </p>
+        {c.permissions.reverse ? (
+          <div>
+            <Button disabled={!online} onClick={() => setReverse(true)}>
+              消化を取り消す(+1)
+            </Button>
+            <p className="small muted" style={{ margin: '4px 0 0' }}>
+              取り消すと1回分が戻り、この予約は再び「消化の確認待ち」になります(消化しない、と確定し直せます)。
+            </p>
+          </div>
+        ) : null}
+      </div>
+      {reverse ? <ReverseModal bookingId={b.id} name={c.consumption!.name} onClose={() => setReverse(false)} /> : null}
+    </Card>
   );
 }
 

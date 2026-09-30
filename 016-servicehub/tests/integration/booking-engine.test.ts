@@ -44,6 +44,16 @@ describe('Phase2: catalog CRUD', () => {
     expect(res.body.items.map((r: any) => r.name).sort()).toEqual(['Bed 1', 'Room A']);
   });
 
+  it('shift list for a location also returns the other-location shifts of its staff (shown with *)', async () => {
+    const from = encodeURIComponent(at(D, '00:00'));
+    const to = encodeURIComponent(at(D, '23:59'));
+    const r = await owner.get(`/api/v1/shifts?from=${from}&to=${to}&locationId=${IKE}`);
+    const aki = r.body.items.filter((s: any) => s.staffId === cat.staff.aki).map((s: any) => s.locationId).sort();
+    expect(aki).toEqual([IKE, SHIN].sort());
+    // Ken は池袋に所属しないので出ない
+    expect(r.body.items.some((s: any) => s.staffId === cat.staff.ken)).toBe(false);
+  });
+
   it('work shifts of the same staff cannot overlap across locations (DB exclusion)', async () => {
     const r = await owner.post('/api/v1/shifts', { staffId: cat.staff.aki, locationId: SHIN, type: 'work', startsAt: at(D, '12:00'), endsAt: at(D, '15:00') });
     expectError(r, 409, 'CONFLICT');

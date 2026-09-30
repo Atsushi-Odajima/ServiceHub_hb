@@ -79,6 +79,23 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Deps):
         );
         out.expiringPasses = r.n;
       }
+      // 利用枠の残り(利用プランの今期): Owner・Manager(担当拠点の顧客)向け。KPI の「当期利用率」と同じく、今期の期間が作られている契約を数える
+      if (can(ctx, 'plan.read') && can(ctx, 'kpi.read')) {
+        const params: unknown[] = [ctx.orgId];
+        const vis = await customerVisibility(q, ctx, 'c', params, now);
+        const today = todayIn(ctx.orgTimezone, now);
+        params.push(today, addDays(today, 7));
+        const r = await q.one<{ plans: number; remaining: number; ending_soon: number }>(
+          `SELECT count(DISTINCT p.id)::int AS plans, coalesce(sum(pp.remaining), 0)::int AS remaining,
+                  count(DISTINCT p.id) FILTER (WHERE pp.remaining > 0 AND pp.period_end <= $${params.length}::date)::int AS ending_soon
+             FROM customer_plans p JOIN customers c ON c.id = p.customer_id
+             JOIN customer_plan_periods pp ON pp.customer_plan_id = p.id AND pp.organization_id = p.organization_id
+                  AND pp.period_start <= $${params.length - 1}::date AND pp.period_end >= $${params.length - 1}::date
+            WHERE p.organization_id = $1 AND p.status = 'active' AND ${vis}`,
+          params,
+        );
+        out.planUsage = { plans: r.plans, remaining: r.remaining, endingSoonWithRemaining: r.ending_soon };
+      }
       if (can(ctx, 'notification.read')) {
         const r = await q.one<{ n: number }>(
           `SELECT count(*)::int AS n FROM notifications

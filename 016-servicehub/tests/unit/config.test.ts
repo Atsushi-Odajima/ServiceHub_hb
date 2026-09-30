@@ -51,6 +51,14 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base }).APP_BASE_URL).toBe('http://localhost:3000');
   });
 
+  it('Turnstile のキーは両方そろったときだけ有効(片方だけなら起動しない)', () => {
+    expect(() => loadConfig({ ...base, TURNSTILE_SITE_KEY: 'site' })).toThrow(/TURNSTILE/);
+    expect(() => loadConfig({ ...base, TURNSTILE_SECRET_KEY: 'secret' })).toThrow(/TURNSTILE/);
+    const c = loadConfig({ ...base, TURNSTILE_SITE_KEY: 'site', TURNSTILE_SECRET_KEY: 'secret' });
+    expect(c.TURNSTILE_VERIFY_URL).toBe('https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    expect(loadConfig({ ...base, TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '' }).TURNSTILE_SITE_KEY).toBeUndefined();
+  });
+
   it('本番で SESSION_SECRET が見本のままなら起動しない', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production', APP_BASE_URL: 'https://a.example.com', SESSION_SECRET: 'change-me-to-a-long-random-string-at-least-32-chars' })).toThrow(/SESSION_SECRET/);
   });

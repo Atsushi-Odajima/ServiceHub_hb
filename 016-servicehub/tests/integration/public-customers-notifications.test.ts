@@ -196,6 +196,19 @@ describe('Phase3: customers', () => {
     expect((await owner.get(`/api/v1/customers/${b3.customerId}`)).body.status).toBe('active');
   });
 
+  it('重複候補は見てよい顧客だけを返す(担当拠点外の顧客の氏名・連絡先を出さない)', async () => {
+    const a = (await owner.post('/api/v1/customers', { name: '拠点 重複甲', phone: '070-5555-6666', preferredLocationId: IKE })).body;
+    const b = (await owner.post('/api/v1/customers', { name: '拠点 重複乙', phone: '070-5555-6666', preferredLocationId: SHIN })).body;
+    expect((await owner.get(`/api/v1/customers/${a.id}`)).body.duplicateCandidates.map((d: any) => d.id)).toContain(b.id);
+    const rec = await login(t.app, f.users.reception.email);
+    const r = await rec.get(`/api/v1/customers/${a.id}`);
+    expect(r.status).toBe(200);
+    expect(r.body.duplicateCandidates.map((d: any) => d.id)).not.toContain(b.id);
+    expect(JSON.stringify(r.body)).not.toContain('重複乙');
+    const list = await rec.get(`/api/v1/customers/${a.id}/duplicates`);
+    expect(list.body.items.map((d: any) => d.id)).not.toContain(b.id);
+  });
+
   it('search by phone suffix, name prefix, kana, email', async () => {
     const c = (await owner.post('/api/v1/customers', { name: '高橋 美咲', nameKana: 'タカハシ ミサキ', email: 'misaki@cust.example', phone: '090-9876-5432' })).body;
     const hit = async (q: string) => (await owner.get(`/api/v1/customers?q=${encodeURIComponent(q)}`)).body.items.map((x: any) => x.id);
