@@ -13,6 +13,12 @@ import { ManageBookingPage, PublicBookingPage, PublicOrgPage } from './pages/pub
 import { CustomerDetailPage, CustomersPage } from './pages/customers/CustomerPages';
 import { BookingDetailPage, BookingsPage } from './pages/bookings/BookingPages';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { CompletionPage } from './pages/operations/CompletionPage';
+import { NextBookingPage } from './pages/operations/NextBookingPage';
+import { ReceptionPage } from './pages/operations/ReceptionPage';
+import { SchedulePage } from './pages/operations/SchedulePage';
+import { PassDetailPage, PassesPage, PlanDetailPage, PlansPage } from './pages/entitlements/EntitlementPages';
+import { PassProductsPage, PlanProductsPage } from './pages/settings/ProductPages';
 
 const NotFound = () => (
   <div className="content">
@@ -34,6 +40,15 @@ export function App() {
         <Route path="/p/:org" element={<PublicOrgPage />} />
         <Route path="/p/:org/:loc" element={<PublicBookingPage />} />
         <Route path="/b/:token" element={<ManageBookingPage />} />
+        {/* 受付モードは全画面(サイドバーなし) */}
+        <Route
+          path="/app/reception"
+          element={
+            <AuthGate>
+              <ReceptionPage />
+            </AuthGate>
+          }
+        />
         <Route
           path="/app"
           element={
@@ -53,11 +68,21 @@ export function App() {
           <Route path="settings/services/:id" element={<ServiceEditPage />} />
           <Route path="settings/staff" element={<StaffPage />} />
           <Route path="settings/resources" element={<ResourcesPage />} />
+          <Route path="settings/pass-products" element={<PassProductsPage />} />
+          <Route path="settings/plan-products" element={<PlanProductsPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
           <Route path="shifts" element={<ShiftsPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="bookings" element={<BookingsPage />} />
           <Route path="bookings/:id" element={<BookingDetailPage />} />
+          <Route path="bookings/:id/complete" element={<CompletionPage />} />
+          <Route path="bookings/:id/consume" element={<CompletionPage />} />
+          <Route path="bookings/:id/next" element={<NextBookingPage />} />
+          <Route path="passes" element={<PassesPage />} />
+          <Route path="passes/:id" element={<PassDetailPage />} />
+          <Route path="plans" element={<PlansPage />} />
+          <Route path="plans/:id" element={<PlanDetailPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>

@@ -310,8 +310,14 @@ describe('Phase3: notifications', () => {
     const { res } = await publicBook({ serviceId: cat.services.trial30, customer: { name: '通知 確認', email: 'notify@cust.example', phone: '0900000001' } }, f.slug, 'shinjuku');
     expect(res.status).toBe(200);
     const b = (await owner.get(`/api/v1/bookings?code=${res.body.code}`)).body.items[0];
-    const r = await processDueNotifications(t.deps, 100);
-    expect(r.claimed).toBeGreaterThan(0);
+    // 他のテストが残した通知も含めてキューを処理し切る
+    let claimed = 0;
+    for (let i = 0; i < 50; i++) {
+      const r = await processDueNotifications(t.deps, 100);
+      claimed += r.claimed;
+      if (r.claimed === 0) break;
+    }
+    expect(claimed).toBeGreaterThan(0);
     const rows = await withTenant(t.pool, { orgId: f.orgId }, (q) =>
       q.many<{ status: string; skip_reason: string | null; payload: any }>(`SELECT status, skip_reason, payload FROM notifications WHERE booking_id = $1`, [b.id]),
     );

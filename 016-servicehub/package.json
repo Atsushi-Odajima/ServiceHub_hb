@@ -27,7 +27,7 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm build && playwright test",
     "load:generate": "tsx tests/load/generate.ts",
     "load:run": "tsx tests/load/run.ts",
     "notices": "node scripts/third-party-notices.mjs"

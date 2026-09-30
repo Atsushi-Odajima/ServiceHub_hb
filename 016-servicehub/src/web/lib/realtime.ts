@@ -16,9 +16,10 @@ export function useRealtime(): void {
       es = new EventSource('/api/v1/events', { withCredentials: true });
       es.addEventListener('change', (ev) => {
         try {
-          const data = JSON.parse((ev as MessageEvent).data) as { entity?: string };
+          const data = JSON.parse((ev as MessageEvent).data) as { entity?: string; id?: string };
           const entity = data.entity ?? 'booking';
           if (entity === 'booking') {
+            if (data.id) void qc.invalidateQueries({ queryKey: ['booking', data.id] });
             void qc.invalidateQueries({ queryKey: ['bookings'] });
             void qc.invalidateQueries({ queryKey: ['today'] });
             void qc.invalidateQueries({ queryKey: ['reception'] });

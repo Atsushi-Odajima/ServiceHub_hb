@@ -1092,6 +1092,32 @@ button.list-item:hover {
   border-color: var(--c-primary);
   background: var(--c-primary-soft);
 }
+.choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 2px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  cursor: pointer;
+  min-height: 48px;
+}
+.choice-card input[type='radio'] {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+  accent-color: var(--c-primary);
+}
+.choice-card:has(input:checked) {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+.choice-card:focus-within {
+  outline: 3px solid var(--c-focus);
+  outline-offset: 2px;
+}
 .slot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));

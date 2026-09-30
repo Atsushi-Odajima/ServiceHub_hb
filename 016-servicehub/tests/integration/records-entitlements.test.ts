@@ -522,10 +522,13 @@ describe('Phase4: 完了・実施記録・次回予約・受付', () => {
         idempotencyKey: idem('r'),
       }),
     );
+    const hintPass = await grant(c, passShort, D2); // 全サービス対象・D2 のみ有効
     const board = await ok(reception.get(`/api/v1/reception/board?locationId=${IKE}&date=${D2}`));
     const item = board.items.find((x: any) => x.id === b.id);
     expect(item).toBeTruthy();
     expect(item.internalNote).toBeUndefined();
+    // 受付に利用権の目安を表示(消化は完了時に明示的に行う)
+    expect(item.entitlements).toEqual([{ kind: 'pass', id: hintPass.id, name: '1日券', remaining: 3, until: D2, expiringSoon: true }]);
     expect(board.items.every((x: any) => x.locationId === IKE)).toBe(true);
     expect(board.counts.confirmed).toBeGreaterThan(0);
     expectError(await reception.get(`/api/v1/reception/board?locationId=${SHIN}&date=${D2}`), 404, 'NOT_FOUND');

@@ -297,11 +297,9 @@ export function BookingDetailPage() {
                 ▶ 対応開始
               </Button>
             ) : null}
-            {b.status !== 'confirmed' || true ? (
-              <Button variant="primary" size="lg" disabled={!online} onClick={() => navigate(`/app/bookings/${b.id}/complete`)}>
-                ✓ 完了・実施記録
-              </Button>
-            ) : null}
+            <Button variant="primary" size="lg" disabled={!online} onClick={() => navigate(`/app/bookings/${b.id}/complete`)}>
+              ✓ 完了・実施記録
+            </Button>
             {b.status === 'arrived' ? (
               <Button disabled={!online} onClick={() => status.mutate('confirmed')}>
                 来店を取り消す

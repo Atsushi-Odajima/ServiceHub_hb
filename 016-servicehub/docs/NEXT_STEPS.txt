@@ -3,11 +3,14 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
 
-現在: Phase 4 (複数拠点運用/受付/実施記録/次回予約)
-1. SSE(/api/v1/events, LISTEN/NOTIFY)、予定表(日表示・スタッフ列)、今日の画面(/api/v1/today)
-2. 受付モード(/api/v1/reception/board、大きなカード、来店→対応中→完了/欠席/取消)
-3. 完了+実施記録(/api/v1/bookings/:id/complete, service_records CRUD, 取消)、次回予約(/app/bookings/:id/next)
-4. 移動時間は org settings.travelBufferMinutes(実装済み)。複数拠点の横断確認画面
+現在: Phase 7 (待機リスト/定員制/Manager・Staff・Reception 各画面)
+1. 待機リスト: waitlist_entries(顧客・サービス・拠点・希望日時帯・担当希望)、空き発生時の候補抽出(キャンセル/変更で空いた枠)、
+   通知(冪等キー)、自動確定しない。候補から予約する時は最新状態で再判定(E2E-4: 古い空き表示からの確定は競合で拒否)
+2. 公開予約の満席時「キャンセル待ちに登録」(location.allow_public_waitlist)、管理画面の待機リスト(/app/waitlist)
+3. 定員制の画面確認(グループレッスンの残席表示・満席)、必須テスト #16(待機は自動確定しない)
+4. ロール別ダッシュボード(Manager: 拠点の運営状況/Staff: 自分の担当/Reception: 受付)。KPI は Phase 8
+5. サンプル: 待機 誠 を満席ヨガの待機に登録
+E2E: pnpm test:e2e(servicehub_e2e を作り直し、ポート3200でサーバー起動)。E2E-4 は Phase 7、E2E-5 は Phase 8、E2E-7 は Phase 9 で追加
 サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
 開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。

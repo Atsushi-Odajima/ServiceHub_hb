@@ -105,7 +105,7 @@ export function useCatalog() {
   };
 }
 
-function MultiCheck({ legend, items, value, onChange }: { legend: string; items: { id: string; label: string }[]; value: string[]; onChange: (v: string[]) => void }) {
+export function MultiCheck({ legend, items, value, onChange }: { legend: string; items: { id: string; label: string }[]; value: string[]; onChange: (v: string[]) => void }) {
   return (
     <fieldset>
       <legend>{legend}</legend>

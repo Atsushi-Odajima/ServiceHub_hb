@@ -197,7 +197,8 @@ export async function seedSampleOrganization(pool: pg.Pool, opts: { appBaseUrl: 
     await tpl(mika, ikebukuro, [2, 3, 4, 5, 6, 7], '10:00', '20:00', ['14:00', '15:00']);
     await tpl(ken, shinjuku, [1, 2, 3, 4, 5, 6, 7], '10:00', '20:00');
     const today = todayIn(TZ, now);
-    await generateShiftsFromTemplates(q, orgId, [aki, mika, ken], addDays(today, -35), 35 + 60, { skipClosedDays: true, scope: null, createdBy: null });
+    // 過去の実施履歴(extras.ts)のため63日前から生成
+    await generateShiftsFromTemplates(q, orgId, [aki, mika, ken], addDays(today, -63), 63 + 60, { skipClosedDays: true, scope: null, createdBy: null });
 
     // ログインユーザー(サンプル専用パスワード)
     const users: { role: string; email: string }[] = [];
@@ -277,7 +278,10 @@ export async function seedSampleOrganization(pool: pg.Pool, opts: { appBaseUrl: 
     let akiDay = addDays(today, 1);
     while (![1, 3, 5, 7].includes(wd(akiDay))) akiDay = addDays(akiDay, 1);
     await book(q, { location: ids.locations.ikebukuro, service: ids.services.personal60, staff: ids.staff.aki, date: akiDay, time: '11:00', customer: ids.customers.repeater });
-    await book(q, { location: ids.locations.ikebukuro, service: ids.services.trial30, staff: ids.staff.mika, date: addDays(today, 1), time: '15:00', customer: ids.customers.newbie });
+    // 新規 花子の体験(Mika の勤務日 火〜日 のうち明日以降で最も近い日)
+    let mikaDay = addDays(today, 1);
+    while (![2, 3, 4, 5, 6, 7].includes(wd(mikaDay))) mikaDay = addDays(mikaDay, 1);
+    await book(q, { location: ids.locations.ikebukuro, service: ids.services.trial30, staff: ids.staff.mika, date: mikaDay, time: '15:00', customer: ids.customers.newbie });
     // 6名ヨガ(満席)… 翌日 19:00
     const tomorrow = addDays(today, 1);
     const extraNames = ['ヨガ 一', 'ヨガ 二', 'ヨガ 三', 'ヨガ 四'];

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { localDayRange, todayIn } from '../../../shared/time.js';
+import { localDateOf, localDayRange, todayIn } from '../../../shared/time.js';
 import { canAccessLocation, can, requireAuth } from '../../auth/context.js';
 import { loadSession, SESSION_COOKIE } from '../../auth/session.js';
 import { withTenant } from '../../db/tx.js';
@@ -9,6 +9,22 @@ import { AppError, forbidden, notFound } from '../../errors.js';
 import { parse, zDate, zUuid } from '../../http/validate.js';
 import type { RealtimeHub } from '../../realtime/hub.js';
 import { type BookingListRow, bookingDto } from '../bookings/routes.js';
+import { entitlementHints } from '../entitlements/eligibility.js';
+import type { AuthContext } from '../../auth/context.js';
+import type { Q } from '../../db/tx.js';
+
+/** 利用権の表示(回数券/プランの閲覧権限がある場合のみ)。完了・キャンセル済みは対象外 */
+async function hintsFor(q: Q, ctx: AuthContext, rows: BookingListRow[], today: string) {
+  if (!can(ctx, 'pass.read') && !can(ctx, 'plan.read')) return new Map();
+  const targets = rows
+    .filter((r) => ['confirmed', 'arrived', 'in_service'].includes(r.status) || (r.status === 'completed' && !r.consumption_entry_id))
+    .map((r) => ({ bookingId: r.id, customerId: r.customer_id, serviceId: r.service_id, date: localDateOf(r.starts_at, (r.location_snapshot?.timezone as string) ?? ctx.orgTimezone) }));
+  const m = await entitlementHints(q, ctx.orgId, targets, today);
+  if (!can(ctx, 'pass.read') || !can(ctx, 'plan.read')) {
+    for (const [k, v] of m) m.set(k, v.filter((h) => (h.kind === 'pass' ? can(ctx, 'pass.read') : can(ctx, 'plan.read'))));
+  }
+  return m;
+}
 
 export async function registerReceptionRoutes(app: FastifyInstance, deps: Deps & { realtime?: RealtimeHub | null }): Promise<void> {
   const { pool, clock } = deps;
@@ -32,13 +48,14 @@ export async function registerReceptionRoutes(app: FastifyInstance, deps: Deps &
       );
       const counts: Record<string, number> = {};
       for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
+      const hints = await hintsFor(q, ctx, rows, todayIn(loc.timezone, clock.now()));
       return {
         location: { id: qy.locationId, name: loc.name, timezone: loc.timezone },
         date,
         generatedAt: clock.now(),
         counts,
         // 受付には内部メモ・経営情報を出さない(bookingDto が権限で内部メモを除外)
-        items: rows.map((r) => ({ ...bookingDto(r, ctx), internalNote: undefined, forceReason: undefined })),
+        items: rows.map((r) => ({ ...bookingDto(r, ctx), internalNote: undefined, forceReason: undefined, entitlements: hints.get(r.id) ?? [] })),
       };
     });
   });
@@ -75,7 +92,14 @@ export async function registerReceptionRoutes(app: FastifyInstance, deps: Deps &
           ORDER BY b.starts_at LIMIT 1`,
         [ctx.orgId, clock.now(), ownOnly ? ctx.staffId : null, qy.locationId ?? null, ctx.allLocations ? null : ctx.locationIds],
       );
-      return { date, timezone: tz, generatedAt: clock.now(), items: rows.map((r) => bookingDto(r, ctx)), next: next ? bookingDto(next, ctx) : null };
+      const hints = await hintsFor(q, ctx, rows, date);
+      return {
+        date,
+        timezone: tz,
+        generatedAt: clock.now(),
+        items: rows.map((r) => ({ ...bookingDto(r, ctx), entitlements: hints.get(r.id) ?? [] })),
+        next: next ? bookingDto(next, ctx) : null,
+      };
     });
   });
 

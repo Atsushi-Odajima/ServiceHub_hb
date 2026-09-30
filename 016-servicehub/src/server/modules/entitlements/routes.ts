@@ -506,8 +506,8 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
         'SELECT id, period_start, period_end, remaining, status FROM customer_plan_periods WHERE organization_id = $1 AND customer_plan_id = $2 ORDER BY period_start DESC',
         [ctx.orgId, id],
       );
-      const entries = await q.many<{ id: string; customer_plan_period_id: string; entry_type: string; delta: number; balance_after: number; booking_id: string | null; reason: string | null; actor_label: string | null; actor_type: string; created_at: Date; booking_code: string | null }>(
-        `SELECT l.*, b.code AS booking_code FROM plan_ledger_entries l LEFT JOIN bookings b ON b.id = l.booking_id
+      const entries = await q.many<{ id: string; customer_plan_period_id: string; entry_type: string; delta: number; balance_after: number; booking_id: string | null; reason: string | null; actor_label: string | null; actor_type: string; created_at: Date; booking_code: string | null; booking_starts_at: Date | null }>(
+        `SELECT l.*, b.code AS booking_code, b.starts_at AS booking_starts_at FROM plan_ledger_entries l LEFT JOIN bookings b ON b.id = l.booking_id
           WHERE l.organization_id = $1 AND l.customer_plan_id = $2 ORDER BY l.created_at, l.id`,
         [ctx.orgId, id],
       );
@@ -525,6 +525,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
           balanceAfter: e.balance_after,
           bookingId: e.booking_id,
           bookingCode: e.booking_code,
+          bookingStartsAt: e.booking_starts_at,
           reason: e.reason,
           actor: e.actor_type === 'system' ? 'システム' : e.actor_label,
           at: e.created_at,

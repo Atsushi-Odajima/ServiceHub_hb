@@ -89,3 +89,84 @@ export async function hasEligibleEntitlement(q: Q, orgId: string, customerId: st
   if ((await eligiblePasses(q, orgId, customerId, serviceId, date)).length > 0) return true;
   return (await eligiblePlans(q, orgId, customerId, serviceId, date)).length > 0;
 }
+
+export interface EntitlementHint {
+  kind: 'pass' | 'plan';
+  id: string;
+  name: string;
+  remaining: number;
+  /** 回数券の有効期限 / プランの当期末 */
+  until: string | null;
+  expiringSoon: boolean;
+}
+
+/**
+ * 受付ボード・今日の予定用: 予約ごとに使えそうな回数券/プランの要約(表示用の目安。消化時は eligiblePasses/Plans で再判定)。
+ * 予約件数に関係なく4クエリで取得する。
+ */
+export async function entitlementHints(
+  q: Q,
+  orgId: string,
+  items: { bookingId: string; customerId: string; serviceId: string; date: string }[],
+  today: string,
+  soonDays = 14,
+): Promise<Map<string, EntitlementHint[]>> {
+  const out = new Map<string, EntitlementHint[]>();
+  if (items.length === 0) return out;
+  const customerIds = [...new Set(items.map((i) => i.customerId))];
+  const serviceIds = [...new Set(items.map((i) => i.serviceId))];
+  const services = await q.many<{ id: string; pass_eligible: boolean; plan_eligible: boolean }>(
+    'SELECT id, pass_eligible, plan_eligible FROM services WHERE organization_id = $1 AND id = ANY($2::uuid[])',
+    [orgId, serviceIds],
+  );
+  const svc = new Map(services.map((s) => [s.id, s]));
+  const passes = await q.many<{ id: string; customer_id: string; snap: { name: string; allServices?: boolean; serviceIds?: string[] }; remaining: number; starts_on: string; expires_on: string | null }>(
+    `SELECT id, customer_id, product_snapshot AS snap, remaining, starts_on, expires_on FROM customer_passes
+      WHERE organization_id = $1 AND customer_id = ANY($2::uuid[]) AND status = 'active' AND remaining > 0
+      ORDER BY expires_on NULLS LAST, granted_at`,
+    [orgId, customerIds],
+  );
+  const plans = await q.many<{ id: string; customer_id: string; snap: PlanSnapshot; starts_on: string; ends_on: string | null }>(
+    `SELECT id, customer_id, product_snapshot AS snap, starts_on, ends_on FROM customer_plans
+      WHERE organization_id = $1 AND customer_id = ANY($2::uuid[]) AND status = 'active'`,
+    [orgId, customerIds],
+  );
+  const periods = plans.length
+    ? await q.many<{ customer_plan_id: string; period_start: string; period_end: string; remaining: number }>(
+        `SELECT customer_plan_id, period_start, period_end, remaining FROM customer_plan_periods
+          WHERE organization_id = $1 AND customer_plan_id = ANY($2::uuid[])`,
+        [orgId, plans.map((p) => p.id)],
+      )
+    : [];
+  const soon = addDaysIso(today, soonDays);
+  for (const it of items) {
+    const s = svc.get(it.serviceId);
+    const hints: EntitlementHint[] = [];
+    if (s?.pass_eligible) {
+      for (const p of passes) {
+        if (p.customer_id !== it.customerId || p.starts_on > it.date || (p.expires_on !== null && p.expires_on < it.date)) continue;
+        if (!p.snap.allServices && !(p.snap.serviceIds ?? []).includes(it.serviceId)) continue;
+        hints.push({ kind: 'pass', id: p.id, name: p.snap.name, remaining: p.remaining, until: p.expires_on, expiringSoon: p.expires_on !== null && p.expires_on <= soon });
+      }
+    }
+    if (s?.plan_eligible) {
+      for (const p of plans) {
+        if (p.customer_id !== it.customerId || p.starts_on > it.date || (p.ends_on !== null && p.ends_on < it.date)) continue;
+        if (!p.snap.allServices && !(p.snap.serviceIds ?? []).includes(it.serviceId)) continue;
+        const period = periods.find((x) => x.customer_plan_id === p.id && x.period_start <= it.date && x.period_end >= it.date);
+        const range = period ? { start: period.period_start, end: period.period_end } : periodFor(p.snap, p.starts_on, p.ends_on, it.date);
+        const remaining = period ? period.remaining : p.snap.usesPerPeriod;
+        if (remaining <= 0) continue;
+        hints.push({ kind: 'plan', id: p.id, name: p.snap.name, remaining, until: range.end, expiringSoon: false });
+      }
+    }
+    out.set(it.bookingId, hints);
+  }
+  return out;
+}
+
+function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
