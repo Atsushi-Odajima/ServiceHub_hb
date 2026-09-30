@@ -89,7 +89,7 @@ export async function loadEngineInput(q: Q, p: LoadParams): Promise<EngineInput 
   const svcStaff = await q.many<{ staff_id: string }>('SELECT staff_id FROM service_staff WHERE organization_id = $1 AND service_id = $2', [p.orgId, svc.id]);
   const reqs = await q.many<{ id: string; label: string; quantity: number; resource_ids: string[] }>(
       `SELECT r.id, r.label, r.quantity,
-              coalesce((SELECT array_agg(o.resource_id) FROM service_resource_options o WHERE o.requirement_id = r.id), '{}') AS resource_ids
+              coalesce((SELECT array_agg(o.resource_id ORDER BY o.resource_id) FROM service_resource_options o WHERE o.requirement_id = r.id), '{}') AS resource_ids
          FROM service_resource_requirements r
         WHERE r.organization_id = $1 AND r.service_id = $2 ORDER BY r.sort_order, r.label`,
       [p.orgId, svc.id],
@@ -103,7 +103,7 @@ export async function loadEngineInput(q: Q, p: LoadParams): Promise<EngineInput 
   const staffRows = staffIds.length
     ? await q.many<{ id: string; display_name: string; status: string; accepts_bookings: boolean; sort_order: number; location_ids: string[] }>(
         `SELECT s.id, s.display_name, s.status, s.accepts_bookings, s.sort_order,
-                coalesce((SELECT array_agg(sl.location_id) FROM staff_locations sl WHERE sl.staff_id = s.id), '{}') AS location_ids
+                coalesce((SELECT array_agg(sl.location_id ORDER BY sl.location_id) FROM staff_locations sl WHERE sl.staff_id = s.id), '{}') AS location_ids
            FROM staff s WHERE s.organization_id = $1 AND s.id = ANY($2::uuid[])`,
         [p.orgId, staffIds],
       )

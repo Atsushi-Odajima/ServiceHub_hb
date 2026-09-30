@@ -83,7 +83,7 @@ export async function loadSession(pool: pg.Pool, token: string, now: Date): Prom
               st.status AS staff_status,
               o.status AS org_status, o.name AS org_name, o.slug AS org_slug, o.timezone AS org_timezone,
               o.is_sample AS org_is_sample,
-              coalesce((SELECT array_agg(ml.location_id) FROM membership_locations ml
+              coalesce((SELECT array_agg(ml.location_id ORDER BY ml.location_id) FROM membership_locations ml
                          JOIN locations l ON l.id = ml.location_id AND l.status = 'active'
                         WHERE ml.membership_id = m.id), '{}') AS location_ids
          FROM auth_sessions s

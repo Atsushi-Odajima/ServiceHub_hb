@@ -272,6 +272,18 @@ describe('Phase3: customers', () => {
     expect(survivor.body.phone).toBe('090-5555-6666');
     const tl = await owner.get(`/api/v1/customers/${a.id}/timeline`);
     expect(tl.body.items.some((x: any) => x.kind === 'merge')).toBe(true);
+    // ページング(同じ日時の行があっても取りこぼし・重複なし)
+    const paged: unknown[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 50; i++) {
+      const page: any = await owner.get(`/api/v1/customers/${a.id}/timeline?limit=2${cursor ? `&before=${encodeURIComponent(cursor)}` : ''}`);
+      expect(page.status).toBe(200);
+      paged.push(...page.body.items);
+      cursor = page.body.nextBefore;
+      if (!cursor) break;
+    }
+    expect(paged).toEqual(tl.body.items);
+    expectError(await owner.get(`/api/v1/customers/${a.id}/timeline?before=not-a-date`), 400);
     // 統合済み顧客では新規予約できない
     expectError(
       await owner.post('/api/v1/bookings', { locationId: IKE, serviceId: cat.services.trial30, staffId: cat.staff.mika, startsAt: at(D, '20:00'), customer: { customerId: b.id }, idempotencyKey: idem() }),

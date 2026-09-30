@@ -74,7 +74,7 @@ export async function registerResourceRoutes(app: FastifyInstance, deps: Deps): 
         [ctx.orgId, id],
       );
       const blocks = await q.many<{ id: string; starts_at: Date; ends_at: Date; kind: string; note: string | null }>(
-        `SELECT id, starts_at, ends_at, kind, note FROM resource_blocks WHERE organization_id = $1 AND resource_id = $2 AND ends_at > $3 ORDER BY starts_at`,
+        `SELECT id, starts_at, ends_at, kind, note FROM resource_blocks WHERE organization_id = $1 AND resource_id = $2 AND ends_at > $3 ORDER BY starts_at, id`,
         [ctx.orgId, id, clock.now()],
       );
       return {

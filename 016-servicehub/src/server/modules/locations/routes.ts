@@ -113,7 +113,7 @@ export async function registerLocationRoutes(app: FastifyInstance, deps: Deps): 
         `SELECT * FROM locations
           WHERE organization_id = $1 AND ($2::boolean OR status = 'active')
             AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
-          ORDER BY sort_order, name`,
+          ORDER BY sort_order, name, id`,
         [ctx.orgId, includeArchived === 'true', ctx.allLocations ? null : ctx.locationIds],
       );
       return { items: rows.map(locationDto) };
@@ -415,7 +415,7 @@ export async function registerLocationRoutes(app: FastifyInstance, deps: Deps): 
     return withTenant(pool, { orgId: ctx.orgId }, async (q) => {
       const rows = await q.many<{ id: string; starts_at: Date; ends_at: Date; note: string | null }>(
         `SELECT id, starts_at, ends_at, note FROM location_blocks
-          WHERE organization_id = $1 AND location_id = $2 AND starts_at < $4 AND ends_at > $3 ORDER BY starts_at`,
+          WHERE organization_id = $1 AND location_id = $2 AND starts_at < $4 AND ends_at > $3 ORDER BY starts_at, id`,
         [ctx.orgId, id, from, to],
       );
       return { items: rows.map((r) => ({ id: r.id, startsAt: r.starts_at, endsAt: r.ends_at, note: r.note })) };

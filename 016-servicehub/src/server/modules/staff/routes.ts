@@ -62,8 +62,8 @@ async function setRelations(q: Q, orgId: string, staffId: string, locationIds: s
 
 const SELECT_STAFF = `
   SELECT s.id, s.display_name, s.internal_name, s.email, s.phone, s.public_profile, s.accepts_bookings, s.status, s.color, s.sort_order,
-         coalesce((SELECT array_agg(sl.location_id) FROM staff_locations sl WHERE sl.staff_id = s.id), '{}') AS location_ids,
-         coalesce((SELECT array_agg(ss.service_id) FROM service_staff ss WHERE ss.staff_id = s.id), '{}') AS service_ids,
+         coalesce((SELECT array_agg(sl.location_id ORDER BY sl.location_id) FROM staff_locations sl WHERE sl.staff_id = s.id), '{}') AS location_ids,
+         coalesce((SELECT array_agg(ss.service_id ORDER BY ss.service_id) FROM service_staff ss WHERE ss.staff_id = s.id), '{}') AS service_ids,
          m.id AS membership_id, m.role AS membership_role, m.status AS membership_status
     FROM staff s
     LEFT JOIN memberships m ON m.organization_id = s.organization_id AND m.staff_id = s.id`;
@@ -97,7 +97,7 @@ export async function registerStaffRoutes(app: FastifyInstance, deps: Deps): Pro
           WHERE s.organization_id = $1 AND ($2::boolean OR s.status = 'active')
             AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM staff_locations x WHERE x.staff_id = s.id AND x.location_id = $3))
             AND ($4::uuid[] IS NULL OR EXISTS (SELECT 1 FROM staff_locations y WHERE y.staff_id = s.id AND y.location_id = ANY($4::uuid[])))
-          ORDER BY s.status, s.sort_order, s.display_name`,
+          ORDER BY s.status, s.sort_order, s.display_name, s.id`,
         [ctx.orgId, qy.includeArchived === 'true', qy.locationId ?? null, scope],
       );
       return { items: rows.map((r) => dto(r, can(ctx, 'staff.contact.read'))) };
@@ -222,7 +222,7 @@ export async function registerStaffRoutes(app: FastifyInstance, deps: Deps): Pro
       const future = await q.many<{ id: string; starts_at: Date; location_id: string }>(
         `SELECT id, starts_at, location_id FROM bookings
           WHERE organization_id = $1 AND staff_id = $2 AND status IN ('confirmed','arrived') AND starts_at > $3
-          ORDER BY starts_at LIMIT 200`,
+          ORDER BY starts_at, id LIMIT 200`,
         [ctx.orgId, id, clock.now()],
       );
       await writeAudit(q, ctx.orgId, actorOf(ctx), {

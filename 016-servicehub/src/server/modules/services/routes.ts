@@ -92,8 +92,8 @@ interface SvcRow {
 
 const SELECT_SERVICE = `
   SELECT s.*,
-         coalesce((SELECT array_agg(sl.location_id) FROM service_locations sl WHERE sl.service_id = s.id), '{}') AS location_ids,
-         coalesce((SELECT array_agg(ss.staff_id) FROM service_staff ss WHERE ss.service_id = s.id), '{}') AS staff_ids
+         coalesce((SELECT array_agg(sl.location_id ORDER BY sl.location_id) FROM service_locations sl WHERE sl.service_id = s.id), '{}') AS location_ids,
+         coalesce((SELECT array_agg(ss.staff_id ORDER BY ss.staff_id) FROM service_staff ss WHERE ss.service_id = s.id), '{}') AS staff_ids
     FROM services s`;
 
 export function serviceDto(r: SvcRow) {
@@ -169,7 +169,7 @@ async function loadDetail(q: Q, orgId: string, id: string) {
   if (!r) throw notFound('サービス');
   const reqs = await q.many<{ id: string; label: string; quantity: number; resource_ids: string[] }>(
     `SELECT r.id, r.label, r.quantity,
-            coalesce((SELECT array_agg(o.resource_id) FROM service_resource_options o WHERE o.requirement_id = r.id), '{}') AS resource_ids
+            coalesce((SELECT array_agg(o.resource_id ORDER BY o.resource_id) FROM service_resource_options o WHERE o.requirement_id = r.id), '{}') AS resource_ids
        FROM service_resource_requirements r WHERE r.organization_id = $1 AND r.service_id = $2 ORDER BY r.sort_order`,
     [orgId, id],
   );
@@ -202,7 +202,7 @@ export async function registerServiceRoutes(app: FastifyInstance, deps: Deps): P
         `${SELECT_SERVICE}
           WHERE s.organization_id = $1 AND ($2::boolean OR s.status = 'active')
             AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM service_locations x WHERE x.service_id = s.id AND x.location_id = $3))
-          ORDER BY s.status, s.sort_order, s.name`,
+          ORDER BY s.status, s.sort_order, s.name, s.id`,
         [ctx.orgId, qy.includeArchived === 'true', qy.locationId ?? null],
       );
       // 拠点限定ロールには担当拠点で提供されるサービスのみ(拠点未設定のものは表示)

@@ -181,16 +181,16 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
         `SELECT s.id, s.name, s.description, s.category, s.duration_min, s.price_label, s.capacity, s.max_party_size, s.requires_staff, s.notice
            FROM services s JOIN service_locations sl ON sl.service_id = s.id AND sl.location_id = $2
           WHERE s.organization_id = $1 AND s.status = 'active' AND s.is_bookable AND s.is_public
-          ORDER BY s.sort_order, s.name`,
+          ORDER BY s.sort_order, s.name, s.id`,
         [org.id, loc.id],
       );
       const staff = page.allowStaffSelection
         ? await q.many<{ id: string; display_name: string; public_profile: string | null; service_ids: string[] }>(
             `SELECT st.id, st.display_name, st.public_profile,
-                    coalesce((SELECT array_agg(ss.service_id) FROM service_staff ss WHERE ss.staff_id = st.id), '{}') AS service_ids
+                    coalesce((SELECT array_agg(ss.service_id ORDER BY ss.service_id) FROM service_staff ss WHERE ss.staff_id = st.id), '{}') AS service_ids
                FROM staff st JOIN staff_locations sl ON sl.staff_id = st.id AND sl.location_id = $2
               WHERE st.organization_id = $1 AND st.status = 'active' AND st.accepts_bookings
-              ORDER BY st.sort_order, st.display_name`,
+              ORDER BY st.sort_order, st.display_name, st.id`,
             [org.id, loc.id],
           )
         : [];

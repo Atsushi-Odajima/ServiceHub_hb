@@ -149,8 +149,8 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
     const ctx = requireAuth(req, 'pass.read', 'pass.product.manage');
     return withTenant(pool, { orgId: ctx.orgId }, async (q) => {
       const rows = await q.many<{ id: string; name: string; description: string | null; total_uses: number; validity_days: number | null; all_services: boolean; status: string; sort_order: number; service_ids: string[] }>(
-        `SELECT p.*, coalesce((SELECT array_agg(service_id) FROM pass_product_services s WHERE s.pass_product_id = p.id), '{}') AS service_ids
-           FROM pass_products p WHERE p.organization_id = $1 ORDER BY p.status, p.sort_order, p.name`,
+        `SELECT p.*, coalesce((SELECT array_agg(service_id ORDER BY service_id) FROM pass_product_services s WHERE s.pass_product_id = p.id), '{}') AS service_ids
+           FROM pass_products p WHERE p.organization_id = $1 ORDER BY p.status, p.sort_order, p.name, p.id`,
         [ctx.orgId],
       );
       return {
@@ -271,7 +271,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
       params.push(qy.limit);
       const rows = await q.many<PassRow>(
         `SELECT cp.*, c.name AS customer_name FROM customer_passes cp JOIN customers c ON c.id = cp.customer_id
-          WHERE ${where.join(' AND ')} ORDER BY cp.expires_on NULLS LAST, cp.granted_at DESC LIMIT $${params.length}`,
+          WHERE ${where.join(' AND ')} ORDER BY cp.expires_on NULLS LAST, cp.granted_at DESC, cp.id DESC LIMIT $${params.length}`,
         params,
       );
       return { items: rows.map((r) => passDto(r, today)) };
@@ -374,8 +374,8 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
         sort_order: number;
         service_ids: string[];
       }>(
-        `SELECT p.*, coalesce((SELECT array_agg(service_id) FROM plan_product_services s WHERE s.plan_product_id = p.id), '{}') AS service_ids
-           FROM plan_products p WHERE p.organization_id = $1 ORDER BY p.status, p.sort_order, p.name`,
+        `SELECT p.*, coalesce((SELECT array_agg(service_id ORDER BY service_id) FROM plan_product_services s WHERE s.plan_product_id = p.id), '{}') AS service_ids
+           FROM plan_products p WHERE p.organization_id = $1 ORDER BY p.status, p.sort_order, p.name, p.id`,
         [ctx.orgId],
       );
       return {
@@ -486,7 +486,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
       params.push(qy.limit);
       const rows = await q.many<PlanRow>(
         `SELECT p.*, c.name AS customer_name FROM customer_plans p JOIN customers c ON c.id = p.customer_id
-          WHERE ${where.join(' AND ')} ORDER BY p.starts_on DESC LIMIT $${params.length}`,
+          WHERE ${where.join(' AND ')} ORDER BY p.starts_on DESC, p.id DESC LIMIT $${params.length}`,
         params,
       );
       const items = [];

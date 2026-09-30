@@ -90,6 +90,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'notification.retried': '通知の再送',
   'backup.created': 'バックアップ作成',
   'backup.restored': 'バックアップ復元',
+  'backup.restore_tested': 'バックアップの復元テスト',
 };
 
 export const AUDIT_CATEGORIES: { value: string; label: string }[] = [

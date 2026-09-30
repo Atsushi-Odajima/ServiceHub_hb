@@ -111,7 +111,7 @@ export async function grantPass(
   if (c.status !== 'active') throw invalidState('有効な顧客にのみ付与できます');
   const prod = await q.maybeOne<{ name: string; total_uses: number; validity_days: number | null; all_services: boolean; status: string; service_ids: string[] }>(
     `SELECT p.name, p.total_uses, p.validity_days, p.all_services, p.status,
-            coalesce((SELECT array_agg(service_id::text) FROM pass_product_services s WHERE s.pass_product_id = p.id), '{}') AS service_ids
+            coalesce((SELECT array_agg(service_id::text ORDER BY service_id::text) FROM pass_product_services s WHERE s.pass_product_id = p.id), '{}') AS service_ids
        FROM pass_products p WHERE p.organization_id = $1 AND p.id = $2`,
     [orgId, input.passProductId],
   );
@@ -256,7 +256,7 @@ export async function assignPlan(
     status: string;
     service_ids: string[];
   }>(
-    `SELECT p.*, coalesce((SELECT array_agg(service_id::text) FROM plan_product_services s WHERE s.plan_product_id = p.id), '{}') AS service_ids
+    `SELECT p.*, coalesce((SELECT array_agg(service_id::text ORDER BY service_id::text) FROM plan_product_services s WHERE s.plan_product_id = p.id), '{}') AS service_ids
        FROM plan_products p WHERE p.organization_id = $1 AND p.id = $2`,
     [orgId, input.planProductId],
   );

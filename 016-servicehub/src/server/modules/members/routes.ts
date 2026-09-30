@@ -79,18 +79,18 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: Deps): Pr
       }>(
         `SELECT m.id, m.role, m.status, m.all_locations, m.staff_id, st.display_name AS staff_name,
                 u.id AS user_id, u.email, u.display_name, u.last_login_at, m.created_at,
-                coalesce((SELECT array_agg(location_id) FROM membership_locations ml WHERE ml.membership_id = m.id), '{}') AS location_ids
+                coalesce((SELECT array_agg(location_id ORDER BY location_id) FROM membership_locations ml WHERE ml.membership_id = m.id), '{}') AS location_ids
            FROM memberships m
            JOIN users u ON u.id = m.user_id
            LEFT JOIN staff st ON st.id = m.staff_id AND st.organization_id = m.organization_id
           WHERE m.organization_id = $1
-          ORDER BY m.status, CASE m.role WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, u.display_name`,
+          ORDER BY m.status, CASE m.role WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, u.display_name, m.id`,
         [ctx.orgId],
       );
       const invitations = await q.many<{ id: string; email: string; role: Role; expires_at: Date; created_at: Date }>(
         `SELECT id, email, role, expires_at, created_at FROM invitations
           WHERE organization_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2
-          ORDER BY created_at DESC`,
+          ORDER BY created_at DESC, id DESC`,
         [ctx.orgId, clock.now()],
       );
       return {

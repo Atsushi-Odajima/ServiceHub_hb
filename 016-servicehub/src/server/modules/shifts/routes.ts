@@ -53,7 +53,7 @@ interface Conflict {
 /** スタッフの拠点所属を確認(勤務シフトの拠点は所属拠点のみ) */
 async function staffLocations(q: Q, orgId: string, staffId: string): Promise<{ status: string; locationIds: string[] }> {
   const s = await q.maybeOne<{ status: string; location_ids: string[] }>(
-    `SELECT s.status, coalesce((SELECT array_agg(location_id) FROM staff_locations WHERE staff_id = s.id), '{}') AS location_ids
+    `SELECT s.status, coalesce((SELECT array_agg(location_id ORDER BY location_id) FROM staff_locations WHERE staff_id = s.id), '{}') AS location_ids
        FROM staff s WHERE s.organization_id = $1 AND s.id = $2`,
     [orgId, staffId],
   );
@@ -151,7 +151,7 @@ export async function registerShiftRoutes(app: FastifyInstance, deps: Deps): Pro
             AND ($5::uuid IS NULL OR sh.staff_id = $5)
             AND ($6::uuid[] IS NULL OR sh.location_id = ANY($6::uuid[])
                  OR (sh.location_id IS NULL AND EXISTS (SELECT 1 FROM staff_locations y WHERE y.staff_id = sh.staff_id AND y.location_id = ANY($6::uuid[]))))
-          ORDER BY sh.starts_at`,
+          ORDER BY sh.starts_at, sh.id`,
         [ctx.orgId, qy.from, qy.to, qy.locationId ?? null, ownOnly ? ctx.staffId : (qy.staffId ?? null), ownOnly ? null : scope],
       );
       return { items: rows.map(dto) };

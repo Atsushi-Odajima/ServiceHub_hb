@@ -221,7 +221,7 @@ export async function registerRecordRoutes(app: FastifyInstance, deps: Deps): Pr
           WHERE r.organization_id = $1 AND ($2::uuid IS NULL OR r.customer_id = $2) AND ($3::uuid IS NULL OR r.staff_id = $3)
             AND ($4::timestamptz IS NULL OR r.performed_at >= $4) AND ($5::timestamptz IS NULL OR r.performed_at < $5)
             AND ($6::uuid[] IS NULL OR r.location_id = ANY($6::uuid[]))
-          ORDER BY r.performed_at DESC LIMIT $7`,
+          ORDER BY r.performed_at DESC, r.id DESC LIMIT $7`,
         [ctx.orgId, qy.customerId ?? null, ownOnly ? (ctx.staffId ?? '00000000-0000-0000-0000-000000000000') : (qy.staffId ?? null), qy.from ?? null, qy.to ?? null, locationScope(ctx), qy.limit],
       );
       return { items: rows.map((r) => ({ ...recordDto(r, true), customerName: r.customer_name })) };

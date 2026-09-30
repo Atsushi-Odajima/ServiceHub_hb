@@ -108,7 +108,7 @@ export async function registerCsvRoutes(app: FastifyInstance, deps: Deps): Promi
       const rows = await q.many<{ id: string; kind: string; file_name: string | null; status: string; row_count: number; error_count: number; result: unknown; created_at: Date; committed_at: Date | null; created_by: string | null }>(
         `SELECT i.id, i.kind, i.file_name, i.status, i.row_count, i.error_count, i.result, i.created_at, i.committed_at, u.display_name AS created_by
            FROM csv_imports i LEFT JOIN memberships m ON m.id = i.created_by_membership_id LEFT JOIN users u ON u.id = m.user_id
-          WHERE i.organization_id = $1 ORDER BY i.created_at DESC LIMIT 50`,
+          WHERE i.organization_id = $1 ORDER BY i.created_at DESC, i.id DESC LIMIT 50`,
         [ctx.orgId],
       );
       return {

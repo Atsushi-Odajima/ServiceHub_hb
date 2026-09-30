@@ -92,7 +92,7 @@ export async function registerWaitlistRoutes(app: FastifyInstance, deps: Deps): 
           WHERE e.organization_id = $1 AND ($2::text[] IS NULL OR e.status = ANY($2::text[]))
             AND ($3::uuid IS NULL OR e.location_id = $3) AND ($4::uuid[] IS NULL OR e.location_id = ANY($4::uuid[]))
             AND ($5::uuid IS NULL OR e.customer_id = $5)
-          ORDER BY CASE WHEN e.status IN ('waiting','notified') THEN 0 ELSE 1 END, e.date_from, e.created_at
+          ORDER BY CASE WHEN e.status IN ('waiting','notified') THEN 0 ELSE 1 END, e.date_from, e.created_at, e.id
           LIMIT $6`,
         [ctx.orgId, statuses, qy.locationId ?? null, locationScope(ctx), qy.customerId ?? null, qy.limit],
       );
@@ -101,7 +101,7 @@ export async function registerWaitlistRoutes(app: FastifyInstance, deps: Deps): 
         ? await q.many<{ id: string; waitlist_entry_id: string; starts_at: Date; staff_id: string | null; status: string; notified_at: Date | null }>(
             `SELECT id, waitlist_entry_id, starts_at, staff_id, status, notified_at FROM waitlist_matches
               WHERE organization_id = $1 AND waitlist_entry_id = ANY($2::uuid[]) AND status IN ('open','notified','booked') AND starts_at > $3
-              ORDER BY starts_at`,
+              ORDER BY starts_at, id`,
             [ctx.orgId, ids, clock.now()],
           )
         : [];

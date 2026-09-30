@@ -18,6 +18,7 @@ const PAGES: { path: string; heading: RegExp }[] = [
   { path: '/app/settings', heading: /設定/ },
   { path: '/app/settings/pass-products', heading: /回数券の種類/ },
   { path: '/app/settings/plan-products', heading: /利用プランの種類/ },
+  { path: '/app/settings/backup', heading: /^バックアップと復元$/ },
   { path: '/app/reception', heading: /受付モード/ },
   { path: '/app/waitlist', heading: /待機リスト/ },
   { path: '/app/kpi', heading: /運営KPI/ },

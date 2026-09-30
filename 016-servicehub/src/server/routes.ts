@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Deps } from './deps.js';
 import { registerAuditRoutes } from './modules/audit/routes.js';
 import { registerAuthRoutes } from './modules/auth/routes.js';
+import { registerBackupRoutes } from './modules/backup/routes.js';
 import { registerBookingRoutes } from './modules/bookings/routes.js';
 import { registerCsvRoutes } from './modules/csv/routes.js';
 import { registerCustomerRoutes } from './modules/customers/routes.js';
@@ -44,4 +45,5 @@ export async function registerRoutes(app: FastifyInstance, deps: Deps): Promise<
   await registerSearchRoutes(app, deps);
   await registerCsvRoutes(app, deps);
   await registerAuditRoutes(app, deps);
+  await registerBackupRoutes(app, deps);
 }

@@ -43,7 +43,7 @@ export async function registerReceptionRoutes(app: FastifyInstance, deps: Deps &
         `SELECT b.*, c.name AS customer_name, c.name_kana AS customer_kana, c.status AS customer_status
            FROM bookings b JOIN customers c ON c.id = b.customer_id AND c.organization_id = b.organization_id
           WHERE b.organization_id = $1 AND b.location_id = $2 AND b.starts_at >= $3 AND b.starts_at < $4
-          ORDER BY b.starts_at, b.created_at`,
+          ORDER BY b.starts_at, b.created_at, b.id`,
         [ctx.orgId, qy.locationId, day.start, day.end],
       );
       const counts: Record<string, number> = {};
@@ -80,7 +80,7 @@ export async function registerReceptionRoutes(app: FastifyInstance, deps: Deps &
           WHERE b.organization_id = $1 AND b.starts_at >= $2 AND b.starts_at < $3
             AND ($4::uuid IS NULL OR b.staff_id = $4) AND ($5::uuid IS NULL OR b.location_id = $5)
             AND ($6::uuid[] IS NULL OR b.location_id = ANY($6::uuid[]))
-          ORDER BY b.starts_at`,
+          ORDER BY b.starts_at, b.id`,
         [ctx.orgId, day.start, day.end, ownOnly ? ctx.staffId : null, qy.locationId ?? null, ctx.allLocations ? null : ctx.locationIds],
       );
       const next = await q.maybeOne<BookingListRow>(

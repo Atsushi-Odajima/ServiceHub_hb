@@ -150,7 +150,7 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
         where.push(`$${params.length} = ANY(c.tags)`);
       }
       const order =
-        qy.sort === 'created' ? 'c.created_at DESC' : qy.sort === 'name' ? 'c.name_norm ASC' : 'c.last_visit_at DESC NULLS LAST, c.created_at DESC';
+        qy.sort === 'created' ? 'c.created_at DESC, c.id DESC' : qy.sort === 'name' ? 'c.name_norm ASC, c.id' : 'c.last_visit_at DESC NULLS LAST, c.created_at DESC, c.id DESC';
       const rows = qy.q ? await searchCustomerRows(q, where, params, qy.q, order, qy.limit) : await q.many<CustomerRowFull>(`SELECT c.* FROM customers c WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.push(qy.limit)}`, params);
       return { items: rows.map((r) => ({ ...customerDto(r), memo: undefined })) };
     });
@@ -247,11 +247,25 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
   app.get('/api/v1/customers/:id/timeline', async (req) => {
     const ctx = requireAuth(req, 'customer.read');
     const { id } = parse(z.object({ id: zUuid }), req.params);
-    const { before, limit } = parse(z.object({ before: z.string().datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) }), req.query);
+    // ページング: before = "<ISO日時>" または "<ISO日時>|<行ID>"(同じ日時の行を取りこぼさない)
+    const { before, limit } = parse(
+      z.object({
+        before: z
+          .string()
+          .regex(/^[0-9T:.+\-Z]{10,40}(\|[0-9a-f-]{36})?$/, '不正な値です')
+          .optional(),
+        limit: z.coerce.number().int().min(1).max(200).default(100),
+      }),
+      req.query,
+    );
+    const [beforeAt, beforeId] = before ? before.split('|') : [null, null];
+    if (beforeAt && Number.isNaN(Date.parse(beforeAt))) throw new AppError('VALIDATION_ERROR', '不正な値です', { fields: { before: '日時の形式が正しくありません' } });
     return withTenant(pool, { orgId: ctx.orgId }, async (q) => {
       await loadCustomer(q, ctx.orgId, id);
       await assertCustomerVisible(q, ctx, id, clock.now());
-      return { items: await timeline(q, ctx, id, before ?? null, limit) };
+      const items = await timeline(q, ctx, id, beforeAt, beforeId ?? null, limit);
+      const last = items[items.length - 1];
+      return { items: items.map(({ cursor: _c, ...rest }) => rest), nextBefore: items.length === limit && last ? last.cursor : null };
     });
   });
 
@@ -449,17 +463,17 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
       const bookings = await q.many(
         `SELECT code, starts_at, ends_at, status, service_snapshot->>'name' AS service, location_snapshot->>'name' AS location,
                 staff_snapshot->>'displayName' AS staff, party_size, customer_request, contact_snapshot, canceled_at, cancel_reason
-           FROM bookings WHERE organization_id = $1 AND customer_id = $2 ORDER BY starts_at`,
+           FROM bookings WHERE organization_id = $1 AND customer_id = $2 ORDER BY starts_at, id`,
         [ctx.orgId, id],
       );
       const answers = await q.many(
         `SELECT b.code, a.question_snapshot->>'label' AS question, a.answer FROM booking_answers a JOIN bookings b ON b.id = a.booking_id
-          WHERE a.organization_id = $1 AND b.customer_id = $2 ORDER BY b.starts_at, a.sort_order`,
+          WHERE a.organization_id = $1 AND b.customer_id = $2 ORDER BY b.starts_at, b.id, a.sort_order, a.id`,
         [ctx.orgId, id],
       );
       const records = await q.many(
         `SELECT performed_at, service_snapshot->>'name' AS service, customer_memo, next_recommended_on FROM service_records
-          WHERE organization_id = $1 AND customer_id = $2 AND status = 'active' ORDER BY performed_at`,
+          WHERE organization_id = $1 AND customer_id = $2 AND status = 'active' ORDER BY performed_at, id`,
         [ctx.orgId, id],
       );
       const passes = await q.many(
@@ -513,32 +527,32 @@ export async function findDuplicates(q: Q, orgId: string, id: string) {
   }));
 }
 
-async function timeline(q: Q, ctx: AuthContext, customerId: string, before: string | null, limit: number) {
+async function timeline(q: Q, ctx: AuthContext, customerId: string, before: string | null, beforeId: string | null, limit: number) {
   const canRecord = can(ctx, 'record.read');
   const canConf = can(ctx, 'customer.note.confidential');
-  const rows = await q.many<{ kind: string; at: Date; ref_id: string | null; title: string; detail: Record<string, unknown> | null; actor: string | null }>(
-    `SELECT * FROM (
+  const rows = await q.many<{ kind: string; at: Date; ref_id: string | null; title: string; detail: Record<string, unknown> | null; actor: string | null; row_id: string; at_cursor: string }>(
+    `SELECT t.*, to_char(t.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at_cursor FROM (
        SELECT 'booking' AS kind, e.created_at AS at, e.booking_id AS ref_id, e.event_type AS title,
               jsonb_build_object('service', b.service_snapshot->>'name', 'location', b.location_snapshot->>'name', 'timezone', b.location_snapshot->>'timezone',
                                  'startsAt', b.starts_at, 'from', e.from_status, 'to', e.to_status, 'data', e.data, 'code', b.code) AS detail,
-              e.actor_label AS actor
+              e.actor_label AS actor, e.id AS row_id
          FROM booking_events e JOIN bookings b ON b.id = e.booking_id
         WHERE e.organization_id = $1 AND e.customer_id = $2
        UNION ALL
        SELECT 'pass', l.created_at, l.customer_pass_id, l.entry_type,
               jsonb_build_object('pass', cp.product_snapshot->>'name', 'delta', l.delta, 'balance', l.balance_after, 'reason', l.reason, 'bookingId', l.booking_id),
-              l.actor_label
+              l.actor_label, l.id
          FROM pass_ledger_entries l JOIN customer_passes cp ON cp.id = l.customer_pass_id
         WHERE l.organization_id = $1 AND cp.customer_id = $2
        UNION ALL
        SELECT 'plan', l.created_at, l.customer_plan_id, l.entry_type,
               jsonb_build_object('plan', p.product_snapshot->>'name', 'delta', l.delta, 'balance', l.balance_after, 'reason', l.reason, 'bookingId', l.booking_id),
-              l.actor_label
+              l.actor_label, l.id
          FROM plan_ledger_entries l JOIN customer_plans p ON p.id = l.customer_plan_id
         WHERE l.organization_id = $1 AND p.customer_id = $2
        UNION ALL
        SELECT 'note', n.created_at, n.id, n.visibility,
-              jsonb_build_object('body', n.body, 'deleted', n.deleted_at IS NOT NULL), n.author_label
+              jsonb_build_object('body', n.body, 'deleted', n.deleted_at IS NOT NULL), n.author_label, n.id
          FROM customer_notes n
         WHERE n.organization_id = $1 AND n.customer_id = $2 AND (n.visibility = 'general' OR $5::boolean)
        UNION ALL
@@ -546,16 +560,16 @@ async function timeline(q: Q, ctx: AuthContext, customerId: string, before: stri
               jsonb_build_object('service', r.service_snapshot->>'name', 'performedAt', r.performed_at,
                                  'internalMemo', CASE WHEN $4::boolean THEN r.internal_memo END,
                                  'customerMemo', CASE WHEN $4::boolean THEN r.customer_memo END,
-                                 'nextRecommendedOn', r.next_recommended_on, 'bookingId', r.booking_id), NULL
+                                 'nextRecommendedOn', r.next_recommended_on, 'bookingId', r.booking_id), NULL, r.id
          FROM service_records r
         WHERE r.organization_id = $1 AND r.customer_id = $2
        UNION ALL
-       SELECT 'merge', m.created_at, m.merged_id, 'merged', jsonb_build_object('moved', m.moved_counts), NULL
+       SELECT 'merge', m.created_at, m.merged_id, 'merged', jsonb_build_object('moved', m.moved_counts), NULL, m.id
          FROM customer_merges m WHERE m.organization_id = $1 AND m.survivor_id = $2
      ) t
-     WHERE ($3::timestamptz IS NULL OR t.at < $3)
-     ORDER BY t.at DESC LIMIT $6`,
-    [ctx.orgId, customerId, before, canRecord, canConf, limit],
+     WHERE ($3::timestamptz IS NULL OR t.at < $3 OR (t.at = $3 AND $7::uuid IS NOT NULL AND t.row_id < $7::uuid))
+     ORDER BY t.at DESC, t.row_id DESC LIMIT $6`,
+    [ctx.orgId, customerId, before, canRecord, canConf, limit, beforeId],
   );
-  return rows.map((r) => ({ kind: r.kind, at: r.at, refId: r.ref_id, title: r.title, detail: r.detail, actor: r.actor }));
+  return rows.map((r) => ({ kind: r.kind, at: r.at, refId: r.ref_id, title: r.title, detail: r.detail, actor: r.actor, cursor: `${r.at_cursor}|${r.row_id}` }));
 }

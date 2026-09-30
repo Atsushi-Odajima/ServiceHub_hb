@@ -102,7 +102,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, deps: Deps):
              FROM service_records r JOIN customers c ON c.id = r.customer_id
             WHERE r.organization_id = $1 AND r.staff_id = $2 AND r.status = 'active' AND r.performed_at > $3
               AND r.internal_memo IS NULL AND r.customer_memo IS NULL
-            ORDER BY r.performed_at DESC LIMIT 10`,
+            ORDER BY r.performed_at DESC, r.id DESC LIMIT 10`,
           [ctx.orgId, ctx.staffId, new Date(now.getTime() - 14 * 86400_000)],
         );
         out.mine = { today: mine.today, upcoming7: mine.upcoming7, recordsMissing: missing.map((m) => ({ bookingId: m.booking_id, customerName: m.customer_name, serviceName: m.service_name, performedAt: m.performed_at })) };

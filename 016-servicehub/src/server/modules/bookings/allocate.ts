@@ -73,7 +73,7 @@ export async function allocate(q: Q, p: AllocateParams): Promise<AllocationResul
   if (p.release) {
     const old = await q.maybeOne<{ staff_id: string | null; location_id: string; resource_ids: string[] }>(
       `SELECT o.staff_id, o.location_id,
-              coalesce((SELECT array_agg(r.resource_id) FROM occupancy_resources r WHERE r.occupancy_id = o.id), '{}') AS resource_ids
+              coalesce((SELECT array_agg(r.resource_id ORDER BY r.resource_id) FROM occupancy_resources r WHERE r.occupancy_id = o.id), '{}') AS resource_ids
          FROM occupancies o WHERE o.organization_id = $1 AND o.id = $2`,
       [p.orgId, p.release.occupancyId],
     );

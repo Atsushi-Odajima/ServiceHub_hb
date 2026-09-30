@@ -34,7 +34,7 @@ export async function eligiblePasses(q: Q, orgId: string, customerId: string, se
         AND s.pass_eligible
         AND (coalesce((cp.product_snapshot->>'allServices')::boolean, false)
              OR (cp.product_snapshot->'serviceIds') ? $3::text)
-      ORDER BY cp.expires_on NULLS LAST, cp.granted_at`,
+      ORDER BY cp.expires_on NULLS LAST, cp.granted_at, cp.id`,
     [orgId, customerId, serviceId, date],
   );
   return rows.map((r) => ({ kind: 'pass', id: r.id, name: r.name, remaining: r.remaining, expiresOn: r.expires_on }));
@@ -123,7 +123,7 @@ export async function entitlementHints(
   const passes = await q.many<{ id: string; customer_id: string; snap: { name: string; allServices?: boolean; serviceIds?: string[] }; remaining: number; starts_on: string; expires_on: string | null }>(
     `SELECT id, customer_id, product_snapshot AS snap, remaining, starts_on, expires_on FROM customer_passes
       WHERE organization_id = $1 AND customer_id = ANY($2::uuid[]) AND status = 'active' AND remaining > 0
-      ORDER BY expires_on NULLS LAST, granted_at`,
+      ORDER BY expires_on NULLS LAST, granted_at, id`,
     [orgId, customerIds],
   );
   const plans = await q.many<{ id: string; customer_id: string; snap: PlanSnapshot; starts_on: string; ends_on: string | null }>(

@@ -45,7 +45,7 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Dep
           WHERE organization_id = $1 AND ($2::text IS NULL OR status = $2) AND ($3::text IS NULL OR type = $3)
             AND ($4::timestamptz IS NULL OR created_at >= $4) AND ($5::timestamptz IS NULL OR created_at < $5)
             AND ($6::uuid[] IS NULL OR location_id = ANY($6::uuid[]))
-          ORDER BY created_at DESC LIMIT $7`,
+          ORDER BY created_at DESC, id DESC LIMIT $7`,
         [ctx.orgId, qy.status ?? null, qy.type ?? null, qy.from ?? null, qy.to ?? null, locationScope(ctx), qy.limit],
       );
       const counts = await q.many<{ status: string; n: number }>(

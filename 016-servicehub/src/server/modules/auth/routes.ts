@@ -56,7 +56,7 @@ async function activeMemberships(deps: Deps, userId: string): Promise<Membership
          LEFT JOIN staff st ON st.id = m.staff_id AND st.organization_id = m.organization_id
         WHERE m.user_id = $1 AND m.status = 'active' AND o.status = 'active'
           AND (m.staff_id IS NULL OR st.status = 'active')
-        ORDER BY o.is_sample, o.name`,
+        ORDER BY o.is_sample, o.name, o.id`,
       [userId],
     ),
   );

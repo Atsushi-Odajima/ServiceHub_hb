@@ -26,6 +26,7 @@ import { KpiPage } from './pages/analytics/KpiPage';
 import { SearchPage } from './pages/analytics/SearchPage';
 import { PassDetailPage, PassesPage, PlanDetailPage, PlansPage } from './pages/entitlements/EntitlementPages';
 import { PassProductsPage, PlanProductsPage } from './pages/settings/ProductPages';
+import { BackupPage } from './pages/settings/BackupPage';
 
 const NotFound = () => (
   <div className="content">
@@ -80,6 +81,7 @@ export function App() {
           <Route path="settings/resources" element={<RequirePerm any={['resource.manage'] as Permission[]}><ResourcesPage /></RequirePerm>} />
           <Route path="settings/pass-products" element={<RequirePerm any={['pass.product.manage'] as Permission[]}><PassProductsPage /></RequirePerm>} />
           <Route path="settings/plan-products" element={<RequirePerm any={['plan.product.manage'] as Permission[]}><PlanProductsPage /></RequirePerm>} />
+          <Route path="settings/backup" element={<RequirePerm any={['backup.manage'] as Permission[]}><BackupPage /></RequirePerm>} />
           <Route path="schedule" element={<RequirePerm any={['booking.read.all','booking.read.own'] as Permission[]}><SchedulePage /></RequirePerm>} />
           <Route path="waitlist" element={<RequirePerm any={['waitlist.read'] as Permission[]}><WaitlistPage /></RequirePerm>} />
           <Route path="kpi" element={<RequirePerm any={['kpi.read'] as Permission[]}><KpiPage /></RequirePerm>} />

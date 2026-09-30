@@ -243,7 +243,7 @@ export async function registerBookingRoutes(app: FastifyInstance, deps: Deps): P
             AND ($8::uuid[] IS NULL OR b.location_id = ANY($8::uuid[]))
             AND ($9::text IS NULL OR b.code = upper($9))
             AND ($10::text IS NULL OR b.consumption_review = $10)
-          ORDER BY b.starts_at ${qy.order === 'desc' ? 'DESC' : 'ASC'}
+          ORDER BY b.starts_at ${qy.order === 'desc' ? 'DESC' : 'ASC'}, b.id ${qy.order === 'desc' ? 'DESC' : 'ASC'}
           LIMIT $11`,
         [
           ctx.orgId,
@@ -278,7 +278,7 @@ export async function registerBookingRoutes(app: FastifyInstance, deps: Deps): P
       );
       const events = await q.many<{ event_type: string; from_status: string | null; to_status: string | null; data: unknown; actor_type: string; actor_label: string | null; created_at: Date }>(
         `SELECT event_type, from_status, to_status, data, actor_type, actor_label, created_at FROM booking_events
-          WHERE organization_id = $1 AND booking_id = $2 ORDER BY created_at`,
+          WHERE organization_id = $1 AND booking_id = $2 ORDER BY created_at, id`,
         [ctx.orgId, id],
       );
       const resources = b.occupancy_id

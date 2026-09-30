@@ -23,9 +23,9 @@ export function setCsrfToken(token: string | null): void {
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
-async function request<T>(method: Method, url: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+async function request<T>(method: Method, url: string, body?: unknown, extraHeaders: Record<string, string> = {}, raw = false): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && !raw) headers['Content-Type'] = 'application/json';
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken;
   let res: Response;
   try {
@@ -33,7 +33,7 @@ async function request<T>(method: Method, url: string, body?: unknown, extraHead
       method,
       credentials: 'same-origin',
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : raw ? (body as Blob) : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(0, 'NETWORK', 'サーバーに接続できません。通信状態を確認してください。操作は完了していません。');
@@ -64,6 +64,8 @@ export const api = {
   patch: <T = any>(url: string, body: unknown = {}) => request<T>('PATCH', url, body),
   put: <T = any>(url: string, body: unknown = {}) => request<T>('PUT', url, body),
   del: <T = any>(url: string) => request<T>('DELETE', url),
+  /** ファイル本体をそのまま送る(バックアップの検証・復元) */
+  upload: <T = any>(url: string, file: Blob) => request<T>('POST', url, file, { 'Content-Type': 'application/octet-stream' }, true),
 };
 
 /** クエリ文字列の組み立て(undefined/null/'' は除外) */
