@@ -1,0 +1,72 @@
+{
+  "name": "servicehub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ServiceHub — 小規模サービス事業 統合運営システム",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx watch --clear-screen=false src/server/index.ts",
+    "dev:web": "vite",
+    "build": "pnpm build:web && pnpm build:server",
+    "build:web": "vite build",
+    "build:server": "node scripts/build-server.mjs",
+    "start": "node dist/server/index.js",
+    "start:worker": "node dist/server/worker.js",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "db:migrate": "tsx src/server/cli/migrate.ts",
+    "db:seed:sample": "tsx src/server/cli/seed-sample.ts",
+    "setup:org": "tsx src/server/cli/setup-org.ts",
+    "backup:create": "tsx src/server/cli/backup.ts create",
+    "backup:verify": "tsx src/server/cli/backup.ts verify",
+    "backup:restore": "tsx src/server/cli/backup.ts restore",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "load:generate": "tsx tests/load/generate.ts",
+    "load:run": "tsx tests/load/run.ts",
+    "notices": "node scripts/third-party-notices.mjs"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.1.2",
+    "@fastify/helmet": "13.1.1",
+    "@fastify/static": "10.1.5",
+    "fastify": "5.12.5",
+    "luxon": "3.7.2",
+    "nodemailer": "10.0.12",
+    "pg": "8.23.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@tanstack/react-query": "5.104.0",
+    "@types/luxon": "3.7.6",
+    "@types/node": "22.20.4",
+    "@types/nodemailer": "8.0.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "autocannon": "8.0.0",
+    "esbuild": "0.28.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "8.4.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vite": "8.3.1",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "5.0.2",
+    "workbox-window": "7.4.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

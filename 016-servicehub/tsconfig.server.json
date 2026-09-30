@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "outDir": "dist-tsc"
+  },
+  "include": ["src/server/**/*.ts", "src/shared/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["tests/e2e/**"]
+}

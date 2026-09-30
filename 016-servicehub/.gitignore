@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-tsc/
+.env
+.env.local
+*.log
+coverage/
+test-results/
+playwright-report/
+tests/e2e/.auth/
+backups/
+*.shbak
+*.shbak.enc
+tmp/

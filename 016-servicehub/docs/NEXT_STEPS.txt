@@ -1,0 +1,9 @@
+ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最初に読む)
+======================================================================
+作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
+DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
+
+現在: Phase 0 (設計資料 + PoC) 仕上げ中
+1. Vite8 + vite-plugin-pwa の PWA 雛形ビルド確認
+2. OPERATING_COSTS.md(料金調査結果を反映)
+3. Phase 1: 認証(セッション/CSRF)・メンバーシップ・拠点スコープ・組織/拠点API・管理UIシェル
