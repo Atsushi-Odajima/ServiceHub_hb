@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { BookingPage } from '../../../shared/constants';
 import { addDays, formatDateTimeJa, isoWeekday, localTimeOf, todayIn, weekdayLabel } from '../../../shared/time';
 import { api, ApiError, newIdempotencyKey, qs } from '../../api/client';
 import { useApi } from '../../api/hooks';
-import { Alert, Button, Checkbox, EmptyState, ErrorMessage, Spinner, TextAreaField, TextField } from '../../components/ui';
+import { Alert, Button, Checkbox, EmptyState, ErrorMessage, SelectField, Spinner, TextAreaField, TextField } from '../../components/ui';
 
 interface PublicLocation {
   organization: { slug: string; name: string; isSample: boolean };
@@ -104,6 +105,7 @@ interface Slot {
 export function PublicBookingPage() {
   const { org = '', loc = '' } = useParams();
   const [params] = useSearchParams();
+  const qc = useQueryClient();
   const data = useApi<PublicLocation>(['public-loc', org, loc], `/api/v1/public/orgs/${encodeURIComponent(org)}/locations/${encodeURIComponent(loc)}`, { retry: false });
   const [step, setStep] = useState<Step>('service');
   const [serviceId, setServiceId] = useState<string | null>(params.get('service'));
@@ -156,6 +158,17 @@ export function PublicBookingPage() {
   useEffect(() => {
     if (slots.data?.formToken) formToken.current = slots.data.formToken;
   }, [slots.data?.formToken]);
+  // 案内リンクの時刻(time=HH:MM)を一度だけ選択。すでに埋まっていれば案内を表示
+  const timePrefill = useRef(params.get('time'));
+  useEffect(() => {
+    const wanted = timePrefill.current;
+    if (!wanted || !slots.data || date !== params.get('date')) return;
+    timePrefill.current = null;
+    const hit = slots.data.slots.find((x) => localTimeOf(x.startsAt, tz) === wanted);
+    if (hit) setSlot(hit);
+    else setSlotNotice('ご案内した時間はすでに埋まったか、予約できなくなりました。別の日時をお選びください。');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots.data]);
   const questions = useApi<{ items: Question[] }>(['public-questions', serviceId], serviceId ? `${base}/services/${serviceId}/questions` : null);
 
   if (data.isLoading) return <Spinner />;
@@ -214,8 +227,9 @@ export function PublicBookingPage() {
         idemRef.current = null;
         setSlot(null);
         setSlotNotice(err.message);
-        void slots.refetch();
-        void summary.refetch();
+        // 日時選択に戻ると空き状況の取得が有効になり、最新を取り直す(無効中の refetch はしない)
+        void qc.invalidateQueries({ queryKey: ['public-slots'] });
+        void qc.invalidateQueries({ queryKey: ['public-summary'] });
         go('datetime');
       } else {
         setSubmitErr(err);
@@ -740,6 +754,167 @@ export function ManageBookingPage() {
           </div>
         </div>
       ) : null}
+    </PublicShell>
+  );
+}
+
+/** キャンセル待ちの登録(自動では予約されない。空きが出たら店舗からメールで案内) */
+export function PublicWaitlistPage() {
+  const { org = '', loc = '' } = useParams();
+  const [params] = useSearchParams();
+  const base = `/api/v1/public/orgs/${encodeURIComponent(org)}/locations/${encodeURIComponent(loc)}`;
+  const data = useApi<PublicLocation>(['public-loc', org, loc], base, { retry: false });
+  const token = useApi<{ formToken: string; allowWaitlist: boolean }>(['public-form-token', org, loc], `${base}/form-token`, { retry: false, staleTime: 30 * 60_000 });
+  const d = data.data;
+  const tz = d?.location.timezone ?? 'Asia/Tokyo';
+  const today = todayIn(tz);
+  const initialDate = params.get('date') && params.get('date')! >= today ? params.get('date')! : today;
+  const [serviceId, setServiceId] = useState(params.get('service') ?? '');
+  const [staffId, setStaffId] = useState(params.get('staff') ?? '');
+  const [dateFrom, setDateFrom] = useState(initialDate);
+  const [dateTo, setDateTo] = useState(addDays(initialDate, 6));
+  const [useTime, setUseTime] = useState(false);
+  const [timeFrom, setTimeFrom] = useState('10:00');
+  const [timeTo, setTimeTo] = useState('18:00');
+  const [partySize, setPartySize] = useState(1);
+  const [customer, setCustomer] = useState({ name: '', nameKana: '', email: '', phone: '' });
+  const [note, setNote] = useState('');
+  const [agree, setAgree] = useState(false);
+  const [website, setWebsite] = useState('');
+  const [err, setErr] = useState<ApiError | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ dateFrom: string; dateTo: string } | null>(null);
+  if (data.isLoading) return <Spinner />;
+  if (data.error || !d)
+    return (
+      <PublicShell title="キャンセル待ち">
+        <ErrorMessage error={data.error} />
+      </PublicShell>
+    );
+  const service = d.services.find((x) => x.id === serviceId) ?? null;
+  const staffOptions = service ? d.staff.filter((x) => x.serviceIds.includes(service.id)) : [];
+  const valid =
+    Boolean(service) &&
+    customer.name.trim() &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customer.email.trim()) &&
+    customer.phone.replace(/\D/g, '').length >= 9 &&
+    dateTo >= dateFrom &&
+    (!useTime || timeTo > timeFrom) &&
+    agree;
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<{ dateFrom: string; dateTo: string }>(`${base}/waitlist`, {
+        serviceId,
+        staffId: staffId || null,
+        dateFrom,
+        dateTo,
+        timeFrom: useTime ? timeFrom : null,
+        timeTo: useTime ? timeTo : null,
+        partySize,
+        note: note || null,
+        customer: { name: customer.name, nameKana: customer.nameKana || null, email: customer.email, phone: customer.phone },
+        formToken: token.data?.formToken ?? '',
+        website,
+        agree: true,
+      });
+      setDone(r);
+      window.scrollTo(0, 0);
+    } catch (e) {
+      setErr(e as ApiError);
+      void token.refetch();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <PublicShell title={`${d.organization.name} ${d.location.name}`} sub="キャンセル待ち" sample={d.organization.isSample}>
+      {!d.location.allowWaitlist ? (
+        <Alert tone="info">この店舗ではWebからのキャンセル待ち登録を受け付けていません。お電話でお問い合わせください{d.location.phone ? `(${d.location.phone})` : ''}。</Alert>
+      ) : done ? (
+        <section className="stack" aria-live="polite">
+          <h1 style={{ fontSize: '1.2rem' }}>✓ キャンセル待ちを受け付けました</h1>
+          <div className="card">
+            <p style={{ margin: 0 }}>
+              ご希望の期間({done.dateFrom}〜{done.dateTo})に空きが出た場合、店舗からメールでご案内します。
+            </p>
+            <p className="small" style={{ margin: '8px 0 0' }}>
+              ご案内は先着順です。<strong>自動では予約されません。</strong>メールのリンクからご予約ください(その時点で空いている場合のみ予約できます)。
+            </p>
+          </div>
+          <Link className="btn" to={`/p/${org}/${loc}`}>
+            予約ページへ戻る
+          </Link>
+        </section>
+      ) : (
+        <form
+          className="stack"
+          noValidate
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (valid) void submit();
+          }}
+        >
+          <h1 style={{ fontSize: '1.15rem' }}>キャンセル待ちに登録</h1>
+          <p className="small">ご希望の条件で空きが出たら、店舗からメールでお知らせします。登録だけでは予約は確定しません。</p>
+          <SelectField
+            label="サービス"
+            required
+            value={serviceId}
+            onChange={(e) => { setServiceId(e.target.value); setStaffId(''); }}
+            placeholder="選択してください"
+            options={d.services.map((x) => ({ value: x.id, label: x.name }))}
+          />
+          {service?.requiresStaff && d.location.page.allowStaffSelection && staffOptions.length > 0 ? (
+            <SelectField label="担当者" value={staffId} onChange={(e) => setStaffId(e.target.value)} placeholder="指定しない" options={staffOptions.map((x) => ({ value: x.id, label: x.name }))} />
+          ) : null}
+          <div className="grid-2">
+            <TextField label="希望日(から)" type="date" value={dateFrom} min={today} onChange={(e) => setDateFrom(e.target.value)} required />
+            <TextField label="希望日(まで)" type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} required hint="最長31日間" />
+          </div>
+          <Checkbox label="希望の時間帯を指定する" checked={useTime} onChange={(e) => setUseTime(e.target.checked)} />
+          {useTime ? (
+            <div className="grid-2">
+              <TextField label="開始時刻(から)" type="time" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} />
+              <TextField label="開始時刻(まで)" type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} />
+            </div>
+          ) : null}
+          {service && service.maxPartySize > 1 ? (
+            <TextField label="人数" type="number" min={1} max={Math.min(service.maxPartySize, service.capacity)} value={partySize} onChange={(e) => setPartySize(Number(e.target.value) || 1)} />
+          ) : null}
+          <TextField label="お名前" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} required autoComplete="name" />
+          <TextField label="フリガナ" value={customer.nameKana} onChange={(e) => setCustomer({ ...customer, nameKana: e.target.value })} autoComplete="off" />
+          <TextField
+            label="メールアドレス"
+            type="email"
+            inputMode="email"
+            value={customer.email}
+            onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
+            required
+            autoComplete="email"
+            hint="空きのご案内をお送りします"
+          />
+          <TextField label="電話番号" type="tel" inputMode="tel" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} required autoComplete="tel" />
+          <TextAreaField label="ご要望(任意)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+          <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }}>
+            <label>
+              Webサイト
+              <input tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </label>
+          </div>
+          <Checkbox label="空きが出ても自動では予約されないこと(先着順)を確認しました" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+          <ErrorMessage error={err} />
+          <div className="row-between">
+            <Link className="btn" to={`/p/${org}/${loc}`}>
+              ‹ 予約ページへ
+            </Link>
+            <Button type="submit" variant="primary" busy={busy} disabled={!valid || !token.data}>
+              登録する
+            </Button>
+          </div>
+        </form>
+      )}
     </PublicShell>
   );
 }

@@ -9,6 +9,7 @@ import { bookingCode, hmac, sha256 } from '../../auth/crypto.js';
 import { advisoryLockAll, type Q } from '../../db/tx.js';
 import type { Deps } from '../../deps.js';
 import { AppError, invalidState, notFound, versionConflict } from '../../errors.js';
+import { closeWaitlistForBooking, onAvailabilityChanged } from '../waitlist/service.js';
 import { enqueueNotification } from '../../notifications/enqueue.js';
 import { resolveCustomer, type NewCustomerInput } from '../customers/identity.js';
 import { hasEligibleEntitlement } from '../entitlements/eligibility.js';
@@ -95,6 +96,18 @@ export function manageTokenFor(secret: string, orgId: string, idempotencyKey: st
 
 export async function notifyChange(q: Q, orgId: string, locationId: string | null, entity: string, id: string): Promise<void> {
   await q.many('SELECT pg_notify($1, $2)', ['sh_events', JSON.stringify({ o: orgId, l: locationId, e: entity, i: id })]);
+}
+
+/** その拠点・日付に有効な待機があるときだけ候補を再計算する(通常の予約処理を重くしない) */
+async function refreshWaitlistIfAny(q: Q, deps: Deps, orgId: string, b: { id: string; location_id: string; starts_at: Date; location_snapshot?: { timezone?: string } | null }): Promise<void> {
+  const tz = (b.location_snapshot?.timezone as string | undefined) ?? 'Asia/Tokyo';
+  const date = localDateOf(b.starts_at, tz);
+  const any = await q.maybeOne(
+    `SELECT 1 FROM waitlist_entries WHERE organization_id = $1 AND location_id = $2 AND status IN ('waiting','notified')
+        AND date_from <= $3::date AND date_to >= $3::date LIMIT 1`,
+    [orgId, b.location_id, date],
+  );
+  if (any) await onAvailabilityChanged(q, deps, orgId, { locationId: b.location_id, startsAt: b.starts_at, timezone: tz, sourceBookingId: b.id });
 }
 
 export async function loadBookingForUpdate(q: Q, orgId: string, id: string): Promise<BookingRow> {
@@ -312,6 +325,10 @@ export async function createBooking(
     );
   }
 
+  // 待機からの予約(指定)または同じ顧客の同条件の待機を「予約済み」にし、他の待機の候補を更新
+  await closeWaitlistForBooking(q, orgId, a.actor, booking, input.waitlistEntryId ?? null);
+  await refreshWaitlistIfAny(q, deps, orgId, booking);
+
   await addEvent(q, booking, a, 'created', null, 'confirmed', {
     startsAt: booking.starts_at,
     staffId: booking.staff_id,
@@ -455,6 +472,8 @@ export async function rescheduleBooking(q: Q, deps: Deps, orgId: string, a: Book
       payload: { bookingId, previousStartsAt: b.starts_at },
     });
   }
+  await refreshWaitlistIfAny(q, deps, orgId, b);
+  await refreshWaitlistIfAny(q, deps, orgId, updated);
   await notifyChange(q, orgId, updated.location_id, 'booking', bookingId);
   if (b.location_id !== updated.location_id) await notifyChange(q, orgId, b.location_id, 'booking', bookingId);
   return updated;
@@ -517,6 +536,7 @@ export async function cancelBooking(
       payload: { bookingId, by: input.by },
     });
   }
+  await refreshWaitlistIfAny(q, deps, orgId, updated);
   await notifyChange(q, orgId, b.location_id, 'booking', bookingId);
   return updated;
 }
@@ -569,6 +589,7 @@ export async function changeStatus(
     after: { status: to },
     requestId: a.requestId,
   });
+  if (to === 'no_show') await refreshWaitlistIfAny(q, deps, orgId, updated);
   await notifyChange(q, orgId, b.location_id, 'booking', bookingId);
   return updated;
 }
@@ -598,6 +619,7 @@ export async function restoreBooking(q: Q, deps: Deps, orgId: string, a: Booking
       WHERE organization_id = $1 AND id = $2 RETURNING *`,
     [orgId, bookingId, to, allocation.occupancyId, allocation.staffId, deps.clock.now()],
   );
+  await refreshWaitlistIfAny(q, deps, orgId, updated);
   await addEvent(q, updated, a, 'restored', b.status, to);
   await writeAudit(q, orgId, a.actor, {
     action: 'booking.restored',

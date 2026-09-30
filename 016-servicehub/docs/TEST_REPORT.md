@@ -34,3 +34,8 @@
 | E2E-6 | PC + iPad + iPhone | iPad 受付で来店 → iPhone の Staff 画面と PC の一覧に再読み込みなしで反映 → Staff が完了 → PC・iPad に反映 |
 
 未検証(販売前に人が確認): 実機の iPhone Safari / Android Chrome / iPad Safari での操作(この環境には Chromium のみ)、実メール送信。
+
+## Phase 7 (2026-09-30)
+- `pnpm test` … **132/132 合格**(追加: tests/integration/waitlist-dashboard.test.ts 11件、サンプル投入に待機の確認を追加)
+- `pnpm test:e2e` … **17/17 合格**(追加: E2E-4、公開キャンセル待ち登録 × 4端末)
+- E2E-4 で公開予約の不具合を発見し修正: 確認画面で先に枠が埋まると画面が真っ白になっていた(無効中クエリの refetch)。修正後は「たった今埋まった」旨の表示と最新の空き一覧に戻ることを確認

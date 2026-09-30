@@ -35,6 +35,7 @@ export interface BookingDto {
   serviceId: string;
   serviceName: string;
   durationMin: number;
+  capacity: number;
   staffId: string | null;
   staffName: string | null;
   startsAt: string;

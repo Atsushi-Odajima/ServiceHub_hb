@@ -3,6 +3,7 @@ import { addDays, todayIn } from '../../shared/time.js';
 import { parseOrgSettings } from '../../shared/constants.js';
 import { closePlanPeriods, expirePasses, passExpiringNotices } from '../modules/entitlements/ledger.js';
 import { enqueueNotification } from '../notifications/enqueue.js';
+import { expireWaitlist, refreshWaitlistMatches } from '../modules/waitlist/service.js';
 import { registerOrgJob } from './scheduler.js';
 
 registerOrgJob('passes', async (q, _deps, orgId, now) => {
@@ -52,4 +53,11 @@ registerOrgJob('plans', async (q, _deps, orgId, now) => {
     }
   }
   return { planPeriods, planExpiringNotices };
+});
+
+registerOrgJob('waitlist', async (q, deps, orgId, now) => {
+  const waitlistExpired = await expireWaitlist(q, orgId, now);
+  // 候補の再計算(15分以上前に計算した待機から順に)。キャンセル以外の空き(シフト追加・受付停止の解除など)も拾う
+  const r = await refreshWaitlistMatches(q, deps, orgId, { staleBefore: new Date(now.getTime() - 15 * 60_000) }, 50);
+  return { waitlistExpired, waitlistMatches: r.newMatches };
 });

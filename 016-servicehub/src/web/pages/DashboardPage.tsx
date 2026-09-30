@@ -1,10 +1,12 @@
-import { Link } from 'react-router';
-import { ROLE_LABELS } from '../../shared/permissions';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+import { ROLE_LABELS, type Role } from '../../shared/permissions';
 import { qs } from '../api/client';
 import { useApi, useCan, useCurrentLocation, useMe } from '../api/hooks';
-import { Badge, Card, EmptyState, ErrorMessage, PageHeader, SelectField, Spinner, Stat, StatusBadge } from '../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorMessage, PageHeader, SelectField, Spinner, Stat, StatusBadge } from '../components/ui';
 import { fmtDate, fmtDateTime, fmtTime, formatDateJa } from '../lib/format';
 import type { BookingDto } from './bookings/BookingPages';
+import { BookingFormModal } from './bookings/BookingForm';
 import type { EntitlementHint, PassDto } from './entitlements/types';
 
 interface Today {
@@ -14,13 +16,36 @@ interface Today {
   next: BookingDto | null;
 }
 
+interface Dashboard {
+  role: Role;
+  locations?: {
+    id: string;
+    name: string;
+    date: string;
+    counts: Partial<Record<string, number>>;
+    staffOnShiftToday: number;
+    staffOnShiftNow: number;
+    waitlistActive: number | null;
+    waitlistOpenMatches: number | null;
+  }[];
+  pendingReviews?: number;
+  expiringPasses?: number;
+  failedNotifications?: number;
+  mine?: { today: number; upcoming7: number; recordsMissing: { bookingId: string; customerName: string; serviceName: string; performedAt: string }[] };
+}
+
+const n = (v: number | undefined) => v ?? 0;
+
 export function DashboardPage() {
   const me = useMe();
   const can = useCan();
+  const navigate = useNavigate();
   const role = me.data?.membership?.role;
   const ownOnly = !can('booking.read.all');
   const [locId, setLocId, locations] = useCurrentLocation();
+  const [walkin, setWalkin] = useState(false);
   const canBookings = can('booking.read.all') || can('booking.read.own');
+  const dash = useApi<Dashboard>(['dashboard'], '/api/v1/dashboard', { refetchInterval: 60_000 });
   const today = useApi<Today>(
     ['today', ownOnly ? 'own' : locId],
     !canBookings ? null : ownOnly ? '/api/v1/today' : locId ? `/api/v1/today${qs({ locationId: locId })}` : null,
@@ -30,38 +55,139 @@ export function DashboardPage() {
   const reviews = useApi<{ items: BookingDto[] }>(['dashboard', 'reviews'], canReview ? `/api/v1/bookings${qs({ consumptionReview: 'pending', limit: 50, order: 'desc' })}` : null);
   const expiring = useApi<{ items: PassDto[] }>(['dashboard', 'expiring'], can('pass.read') && !ownOnly ? `/api/v1/passes${qs({ expiringWithinDays: 14, limit: 100 })}` : null);
   const items = today.data?.items ?? [];
-  const count = (f: (b: BookingDto) => boolean) => items.filter(f).length;
   const tz = today.data?.timezone ?? me.data?.organization?.timezone ?? 'Asia/Tokyo';
+  const d = dash.data;
+  const openLocation = (id: string, to: string) => {
+    setLocId(id);
+    navigate(to);
+  };
   return (
     <div className="stack-lg">
       <PageHeader
         title={today.data ? `今日 ${formatDateJa(today.data.date)}` : 'ダッシュボード'}
         sub={`${me.data?.user.name ?? ''} ・ ${role ? ROLE_LABELS[role] : ''}${ownOnly ? ' ・ 自分の予約(全拠点)' : ''}`}
         actions={
-          can('reception.operate') ? (
-            <Link className="btn btn-primary btn-lg" to="/app/reception">
-              ◉ 受付モードを開く
-            </Link>
-          ) : null
+          <>
+            {can('reception.operate') && (can('booking.create.all') || can('booking.create.own')) ? <Button onClick={() => setWalkin(true)}>＋ 当日の予約</Button> : null}
+            {can('reception.operate') ? (
+              <Link className="btn btn-primary btn-lg" to="/app/reception">
+                ◉ 受付モードを開く
+              </Link>
+            ) : null}
+          </>
         }
       />
-      {!ownOnly && (locations?.length ?? 0) > 1 ? (
+      <ErrorMessage error={dash.error} retry={() => void dash.refetch()} />
+
+      {/* 自分の予定(Staff) */}
+      {d?.mine ? (
+        <div className="grid-auto">
+          <Stat label="今日の担当" value={d.mine.today} sub="キャンセルを除く" />
+          <Stat label="今後7日の予約" value={d.mine.upcoming7} />
+          <Stat label="記録が未入力" value={d.mine.recordsMissing.length} sub="直近14日の完了" />
+        </div>
+      ) : null}
+
+      {/* 拠点の状況(Owner / Manager / Reception) */}
+      {d?.locations && d.locations.length > 0 ? (
+        <section className="stack" aria-labelledby="loc-status">
+          <h2 id="loc-status" style={{ margin: 0, fontSize: '1.1rem' }}>
+            拠点の状況(今日)
+          </h2>
+          <div className="grid-2">
+            {d.locations.map((l) => {
+              const c = l.counts;
+              const active = n(c.confirmed) + n(c.arrived) + n(c.in_service) + n(c.completed);
+              return (
+                <Card
+                  key={l.id}
+                  title={l.name}
+                  actions={
+                    <>
+                      <Button size="sm" onClick={() => openLocation(l.id, '/app/schedule')}>
+                        予定表
+                      </Button>
+                      {can('reception.operate') ? (
+                        <Button size="sm" onClick={() => openLocation(l.id, '/app/reception')}>
+                          受付
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                >
+                  <dl className="kv">
+                    <dt>予約</dt>
+                    <dd>
+                      <strong>{active}件</strong>(来店待ち {n(c.confirmed)} ・ 来店/対応中 {n(c.arrived) + n(c.in_service)} ・ 完了 {n(c.completed)})
+                    </dd>
+                    <dt>キャンセル・欠席</dt>
+                    <dd>
+                      キャンセル {n(c.canceled_customer) + n(c.canceled_business)} ・ 無断欠席 {n(c.no_show)}
+                    </dd>
+                    <dt>出勤スタッフ</dt>
+                    <dd>
+                      今日 {l.staffOnShiftToday}名 ・ 現在 {l.staffOnShiftNow}名
+                    </dd>
+                    {l.waitlistActive !== null ? (
+                      <>
+                        <dt>待機</dt>
+                        <dd>
+                          <Link to="/app/waitlist" onClick={() => setLocId(l.id)}>
+                            {l.waitlistActive}件
+                          </Link>
+                          {l.waitlistOpenMatches ? (
+                            <>
+                              {' '}
+                              <Badge tone="warning" icon="!">
+                                空きの候補 {l.waitlistOpenMatches}件
+                              </Badge>
+                            </>
+                          ) : null}
+                        </dd>
+                      </>
+                    ) : null}
+                  </dl>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* 要確認 */}
+      {d && (d.pendingReviews || d.expiringPasses || d.failedNotifications) ? (
+        <div className="row" style={{ flexWrap: 'wrap', gap: 8 }} aria-label="要確認">
+          {d.pendingReviews ? (
+            <Badge tone="warning" icon="?">
+              消化の確認待ち {d.pendingReviews}件
+            </Badge>
+          ) : null}
+          {d.expiringPasses ? (
+            <Link to="/app/passes">
+              <Badge tone="warning" icon="▤">
+                14日以内に期限の回数券 {d.expiringPasses}件
+              </Badge>
+            </Link>
+          ) : null}
+          {d.failedNotifications ? (
+            <Link to="/app/notifications">
+              <Badge tone="danger" icon="!">
+                送信に失敗した通知 {d.failedNotifications}件(7日間)
+              </Badge>
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!ownOnly && (locations?.length ?? 0) > 1 && canBookings ? (
         <div style={{ maxWidth: 320 }}>
-          <SelectField label="拠点" value={locId ?? ''} onChange={(e) => setLocId(e.target.value)} options={(locations ?? []).map((l) => ({ value: l.id, label: l.name }))} />
+          <SelectField label="今日の予約を表示する拠点" value={locId ?? ''} onChange={(e) => setLocId(e.target.value)} options={(locations ?? []).map((l) => ({ value: l.id, label: l.name }))} />
         </div>
       ) : null}
       {canBookings ? (
         <>
           <ErrorMessage error={today.error} retry={() => void today.refetch()} />
           {today.isLoading ? <Spinner /> : null}
-          {today.data ? (
-            <div className="grid-auto">
-              <Stat label="今日の予約" value={count((b) => b.status !== 'canceled_customer' && b.status !== 'canceled_business')} sub="キャンセルを除く" />
-              <Stat label="来店待ち" value={count((b) => b.status === 'confirmed')} />
-              <Stat label="来店・対応中" value={count((b) => b.status === 'arrived' || b.status === 'in_service')} />
-              <Stat label="完了" value={count((b) => b.status === 'completed')} />
-            </div>
-          ) : null}
           {today.data?.next ? (
             <Card title="次の予約">
               <Link to={`/app/bookings/${today.data.next.id}`} className="list-item" style={{ padding: 0 }}>
@@ -126,11 +252,29 @@ export function DashboardPage() {
             </Card>
           ) : null}
         </>
-      ) : (
-        <Card title="ようこそ">
-          <p>左のメニュー(スマホは下の「メニュー」)から操作を選んでください。</p>
+      ) : null}
+
+      {d?.mine && d.mine.recordsMissing.length > 0 ? (
+        <Card title="記録が未入力の完了予約">
+          <ul className="list">
+            {d.mine.recordsMissing.map((r) => (
+              <li key={r.bookingId}>
+                <Link className="list-item" to={`/app/bookings/${r.bookingId}/complete`}>
+                  <span className="grow">
+                    <strong>{r.customerName}</strong>
+                    <br />
+                    <span className="small muted">
+                      {fmtDateTime(r.performedAt, tz)} ・ {r.serviceName}
+                    </span>
+                  </span>
+                  <span aria-hidden="true">記入 ›</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </Card>
-      )}
+      ) : null}
+
       {canReview || (can('pass.read') && !ownOnly) ? (
         <div className="grid-2">
           {canReview ? (
@@ -185,6 +329,12 @@ export function DashboardPage() {
           ) : null}
         </div>
       ) : null}
+      {!canBookings ? (
+        <Card title="ようこそ">
+          <p>左のメニュー(スマホは下の「メニュー」)から操作を選んでください。</p>
+        </Card>
+      ) : null}
+      {walkin ? <BookingFormModal initial={{ locationId: locId ?? undefined, title: '当日の予約を追加' }} onClose={() => setWalkin(false)} onCreated={(b) => navigate(`/app/bookings/${b.id}`)} /> : null}
     </div>
   );
 }

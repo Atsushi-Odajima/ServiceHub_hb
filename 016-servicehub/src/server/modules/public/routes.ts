@@ -13,6 +13,9 @@ import { parse, zDate, zEmail, zIdempotencyKey, zIso, zOptText, zPhone, zUuid } 
 import { enforceRateLimit } from '../../ratelimit.js';
 import { type BookingActor, type BookingRow, cancelBooking, createBooking, rescheduleBooking } from '../bookings/service.js';
 import { buildIcs } from './ics.js';
+import { resolveCustomer } from '../customers/identity.js';
+import { createWaitlistEntry } from '../waitlist/service.js';
+import { WaitlistBody } from '../waitlist/routes.js';
 
 const PUBLIC_ACTOR: BookingActor = { actor: CUSTOMER_ACTOR, membershipId: null, mode: 'public', canForce: false };
 
@@ -341,6 +344,64 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
       },
       { lockTimeoutMs: 10000 },
     );
+  });
+
+  // ---- キャンセル待ち(自動では予約しない。空きが出たら店舗から連絡) ----
+  app.get('/api/v1/public/orgs/:slug/locations/:loc/form-token', async (req) => {
+    await readLimit(req);
+    const p = parse(z.object({ slug: z.string().max(60), loc: z.string().max(60) }), req.params);
+    const org = await resolveOrg(deps, p.slug);
+    return withTenant(pool, { orgId: org.id }, async (q) => {
+      const loc = await resolveLocation(q, org.id, p.loc);
+      return { formToken: issueFormToken(config.SESSION_SECRET, org.id, clock.now()), allowWaitlist: loc.allow_public_waitlist };
+    });
+  });
+
+  const PublicWaitlistBody = WaitlistBody.omit({ locationId: true }).extend({
+    customer: z.object({
+      name: z.string().trim().min(1, 'お名前を入力してください').max(100),
+      nameKana: zOptText(100),
+      email: zEmail,
+      phone: zPhone.refine((v) => v !== null, '電話番号を入力してください'),
+    }),
+    formToken: z.string().max(200),
+    website: z.string().max(0, '不正な送信です').optional(),
+    turnstileToken: z.string().max(4000).optional(),
+    agree: z.literal(true, { message: '内容を確認のうえ同意してください' }),
+  });
+
+  app.post('/api/v1/public/orgs/:slug/locations/:loc/waitlist', async (req) => {
+    const p = parse(z.object({ slug: z.string().max(60), loc: z.string().max(60) }), req.params);
+    const now = clock.now();
+    await enforceRateLimit(pool, `public-waitlist:${ip(req)}`, Math.max(10, Math.ceil(config.PUBLIC_RATE_LIMIT_PER_MIN / 3)), 600, now);
+    const body = parse(PublicWaitlistBody, req.body);
+    const org = await resolveOrg(deps, p.slug);
+    if (body.website) throw new AppError('VALIDATION_ERROR', '送信内容を確認してください');
+    if (!verifyFormToken(config.SESSION_SECRET, org.id, body.formToken, now)) {
+      throw new AppError('VALIDATION_ERROR', '画面の有効期限が切れたか、送信が早すぎます。画面を表示し直してから送信してください。');
+    }
+    if (!(await verifyTurnstile(deps, body.turnstileToken, ip(req)))) throw new AppError('VALIDATION_ERROR', '確認に失敗しました。もう一度お試しください。');
+    return withTenant(pool, { orgId: org.id }, async (q) => {
+      const loc = await resolveLocation(q, org.id, p.loc);
+      if (!loc.allow_public_waitlist) throw notFound('キャンセル待ちの受付');
+      const c = await resolveCustomer(q, org.id, body.customer, { source: 'public', createdBy: null });
+      const r = await createWaitlistEntry(q, deps, org.id, CUSTOMER_ACTOR, {
+        locationId: loc.id,
+        serviceId: body.serviceId,
+        staffId: body.staffId,
+        dateFrom: body.dateFrom,
+        dateTo: body.dateTo,
+        timeFrom: body.timeFrom,
+        timeTo: body.timeTo,
+        partySize: body.partySize,
+        note: body.note,
+        customerId: c.customerId,
+        source: 'public',
+        requestId: req.id,
+      });
+      // 登録IDなど内部情報は返さない
+      return { ok: true, created: r.created, dateFrom: body.dateFrom, dateTo: body.dateTo };
+    });
   });
 
   // ---- 予約管理リンク(トークン) ----

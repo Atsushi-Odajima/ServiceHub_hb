@@ -51,6 +51,10 @@ async function request<T>(method: Method, url: string, body?: unknown, extraHead
     const e = data && typeof data === 'object' ? data.error : null;
     throw new ApiError(res.status, e?.code ?? `HTTP_${res.status}`, e?.message ?? `エラーが発生しました (${res.status})`, e?.details);
   }
+  // API は必ず JSON を返す。HTML 等(誤ったURL・プロキシのエラーページ)をデータとして扱わない
+  if (url.startsWith('/api/') && text && typeof data !== 'object' && !(res.headers.get('content-type') ?? '').includes('json')) {
+    throw new ApiError(502, 'BAD_RESPONSE', 'サーバーから予期しない応答がありました。時間をおいて再度お試しください。');
+  }
   return data as T;
 }
 

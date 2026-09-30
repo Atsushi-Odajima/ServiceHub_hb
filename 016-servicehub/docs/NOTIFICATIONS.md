@@ -10,7 +10,7 @@
 | booking_changed | 日時/担当の変更 | 顧客 | `booking_changed:{bookingId}:v{version}` |
 | booking_canceled | キャンセル(顧客/事業者) | 顧客 | `booking_canceled:{bookingId}` |
 | booking_reminder | 開始の N 時間前(拠点設定、既定24h) | 顧客 | `booking_reminder:{bookingId}:{startsAtISO}` |
-| waitlist_available | 待機候補の通知(運営者操作) | 顧客 | `waitlist_available:{matchId}` |
+| waitlist_available | 待機候補の通知(運営者操作。案内前に空きを再判定。リンクにサービス・日付・時刻を含み公開予約で先着順に確定) | 顧客 | `waitlist_available:{matchId}` |
 | pass_expiring | 回数券期限 N 日前 | 顧客 | `pass_expiring:{passId}:{expiresOn}` |
 | plan_expiring | プラン終了 N 日前 | 顧客 | `plan_expiring:{planId}:{endsOn}` |
 | member_invitation | メンバー招待 | 招待先 | `member_invitation:{invitationId}` |

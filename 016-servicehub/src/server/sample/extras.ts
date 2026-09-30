@@ -6,6 +6,7 @@
  * - 期限 美咲: 8回券(期限が約9日後)を3回利用 → 残5回。締切後キャンセル1件が「消化の確認待ち」
  * - 欠席 健一: 無断欠席1件・完了1件
  * - 会員 由美: 月4回プラン。先月4回利用、今月は利用あり
+ * - 待機 誠: 満席の6名ヨガ(翌日19:00)のキャンセル待ち(空きが出るまで候補なし)
  */
 import type pg from 'pg';
 import { addDays, isoWeekday, localToUtcLenient, startOfMonth, todayIn, addMonthsClamped } from '../../shared/time.js';
@@ -15,6 +16,7 @@ import type { Deps } from '../deps.js';
 import { type BookingActor, type BookingRow, cancelBooking, changeStatus, createBooking } from '../modules/bookings/service.js';
 import { assignPlan, closePlanPeriods, grantPass } from '../modules/entitlements/ledger.js';
 import { completeBooking } from '../modules/records/service.js';
+import { createWaitlistEntry } from '../modules/waitlist/service.js';
 import type { SampleIds } from './seed.js';
 
 const TZ = 'Asia/Tokyo';
@@ -152,5 +154,20 @@ export async function sampleExtras(pool: pg.Pool, deps: Deps, ids: SampleIds, no
     }
     // 終了した期間を締める(繰越なし → 残りは失効)
     await closePlanPeriods(q, ids.orgId, today);
+
+    // ---- 待機 誠: 満席ヨガ(翌日19:00)のキャンセル待ち ----
+    const tomorrow = addDays(today, 1);
+    await createWaitlistEntry(q, deps, ids.orgId, op, {
+      customerId: ids.customers.waiting,
+      locationId: ids.locations.shinjuku,
+      serviceId: ids.services.yoga6,
+      dateFrom: tomorrow,
+      dateTo: tomorrow,
+      timeFrom: '19:00',
+      timeTo: '19:30',
+      partySize: 1,
+      note: '満席のため待機(サンプル)',
+      source: 'staff',
+    });
   });
 }

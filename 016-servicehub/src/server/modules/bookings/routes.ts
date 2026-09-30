@@ -55,6 +55,7 @@ export function bookingDto(b: BookingListRow | BookingRow, ctx: AuthContext | nu
     serviceId: b.service_id,
     serviceName: b.service_snapshot?.name,
     durationMin: b.service_snapshot?.durationMin,
+    capacity: (b.service_snapshot?.capacity as number | undefined) ?? 1,
     staffId: b.staff_id,
     staffName: b.staff_snapshot?.displayName ?? null,
     startsAt: b.starts_at,

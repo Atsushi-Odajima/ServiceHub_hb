@@ -262,7 +262,7 @@ export function SchedulePage() {
                         className={`schedule-event tone-${g.other ? 'muted' : st.tone}`}
                         style={{ top, height: h, left, width, right: 'auto', opacity: g.other ? 0.8 : 1 }}
                         onClick={() => (g.bookings.length === 1 ? navigate(`/app/bookings/${first.id}`) : setGroup(g.bookings))}
-                        aria-label={`${fmtTime(first.startsAt, first.timezone)} ${g.bookings.length > 1 ? `${first.serviceName} ${seats}名` : first.customerName} ${st.label}${g.other ? ` ${first.locationName}` : ''}`}
+                        aria-label={`${fmtTime(first.startsAt, first.timezone)} ${g.bookings.length > 1 ? `${first.serviceName} ${seats}/${first.capacity}名` : first.customerName} ${st.label}${g.other ? ` ${first.locationName}` : ''}`}
                       >
                         <strong>
                           <span aria-hidden="true">{st.icon} </span>
@@ -272,7 +272,7 @@ export function SchedulePage() {
                           <>他拠点の予約({first.locationName})</>
                         ) : g.bookings.length > 1 ? (
                           <>
-                            {first.serviceName} {seats}名
+                            {first.serviceName} {seats}/{first.capacity}名
                             <br />
                             <span className="small">{g.bookings.map((b) => b.customerName).join('、')}</span>
                           </>

@@ -44,3 +44,21 @@ test('公開予約ページの表示(ログイン不要)', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+test('キャンセル待ちの登録(公開・ログイン不要)', async ({ page }) => {
+  await page.goto(`/p/${E2E.sample.slug}/shinjuku`);
+  await page.getByRole('button', { name: /6名ヨガ/ }).click();
+  // 公開予約の画面から待機登録ページへ(満席でない日でも登録ページは開ける)
+  await page.goto(`/p/${E2E.sample.slug}/shinjuku/waitlist`);
+  await expect(page.getByRole('heading', { name: 'キャンセル待ちに登録' })).toBeVisible();
+  await page.getByLabel('サービス').selectOption({ label: '6名ヨガ' });
+  await page.getByLabel('お名前').fill('公開 待機テスト');
+  await page.getByLabel('メールアドレス').fill(`wait-${test.info().project.name}-${Date.now()}@example.invalid`);
+  await page.getByLabel('電話番号').fill('090-1212-3434');
+  await page.getByLabel(/自動では予約されないこと/).check();
+  await page.waitForTimeout(3200); // bot 対策(表示からの最短時間)
+  await page.getByRole('button', { name: '登録する' }).click();
+  await expect(page.getByRole('heading', { name: /キャンセル待ちを受け付けました/ })).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});

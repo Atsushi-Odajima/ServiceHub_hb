@@ -74,6 +74,13 @@ async function verify(ids: SampleIds, now: string) {
       [ids.customers.planMember],
     );
     expect(uses.n).toBeGreaterThanOrEqual(4);
+    // 待機 誠: 満席ヨガの待機(候補なし)
+    const wl = await q.one<{ status: string; matches: number }>(
+      `SELECT e.status, (SELECT count(*)::int FROM waitlist_matches m WHERE m.waitlist_entry_id = e.id AND m.status = 'open') AS matches
+         FROM waitlist_entries e WHERE e.organization_id = $1 AND e.customer_id = $2`,
+      [ids.orgId, ids.customers.waiting],
+    );
+    expect(wl).toEqual({ status: 'waiting', matches: 0 });
     // 過去の履歴は通常の予約ルールで作成(強制予約なし)
     const forced = await q.one<{ n: number }>(`SELECT count(*)::int AS n FROM bookings WHERE organization_id = $1 AND forced AND starts_at < $2::timestamptz - interval '1 day'`, [
       ids.orgId,

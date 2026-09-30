@@ -15,6 +15,8 @@ export interface BookingFormInitial {
   customer?: { id: string; name: string };
   previousBookingId?: string;
   waitlistEntryId?: string;
+  /** 空き一覧が読み込まれたら、この開始時刻の枠を選択(待機の候補から予約する時など) */
+  startsAt?: string;
   title?: string;
 }
 
@@ -111,6 +113,13 @@ export function BookingFormModal({ initial = {}, onClose, onCreated }: { initial
     locationId && serviceId && date && !manualTime ? `/api/v1/availability${qs({ locationId, serviceId, date, staffId: staffId || undefined, partySize })}` : null,
   );
   useEffect(() => setSlot(null), [locationId, serviceId, staffId, date, partySize]);
+  const wantedStart = useRef(initial.startsAt ?? null);
+  useEffect(() => {
+    if (!wantedStart.current || !avail.data) return;
+    const hit = avail.data.slots.find((x) => new Date(x.startsAt).getTime() === new Date(wantedStart.current!).getTime());
+    wantedStart.current = null;
+    if (hit) setSlot(hit.startsAt);
+  }, [avail.data]);
 
   const startsAt = manualTime ? localToUtcLenient(date, time, tz).toISOString() : slot;
   useEffect(() => {
@@ -154,7 +163,7 @@ export function BookingFormModal({ initial = {}, onClose, onCreated }: { initial
       setErr(ae);
       if (ae.code === 'SLOT_UNAVAILABLE') {
         idem.current = newIdempotencyKey('adm');
-        void avail.refetch();
+        if (!manualTime) void avail.refetch();
       }
     } finally {
       setBusy(false);

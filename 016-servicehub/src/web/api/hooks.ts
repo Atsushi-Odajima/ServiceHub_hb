@@ -35,7 +35,8 @@ export function useCan(): (p: Permission) => boolean {
 export function useApi<T = any>(key: QueryKey, url: string | null, opts: Partial<UseQueryOptions<T, ApiError>> = {}) {
   return useQuery<T, ApiError>({
     queryKey: key,
-    queryFn: () => api.get<T>(url!),
+    // 無効化中(url=null)の refetch() でも誤ったURLへ要求しない
+    queryFn: () => (url === null ? Promise.reject(new ApiError(0, 'DISABLED', '読み込み対象がありません')) : api.get<T>(url)),
     enabled: url !== null && (opts.enabled ?? true),
     ...opts,
   });

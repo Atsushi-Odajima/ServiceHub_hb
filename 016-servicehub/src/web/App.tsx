@@ -9,7 +9,7 @@ import { LocationEditPage, LocationsPage } from './pages/settings/LocationsPages
 import { MembersPage } from './pages/settings/MembersPage';
 import { ResourcesPage, ServiceEditPage, ServicesPage, StaffPage } from './pages/settings/CatalogPages';
 import { ShiftsPage } from './pages/ShiftsPage';
-import { ManageBookingPage, PublicBookingPage, PublicOrgPage } from './pages/public/PublicPages';
+import { ManageBookingPage, PublicBookingPage, PublicOrgPage, PublicWaitlistPage } from './pages/public/PublicPages';
 import { CustomerDetailPage, CustomersPage } from './pages/customers/CustomerPages';
 import { BookingDetailPage, BookingsPage } from './pages/bookings/BookingPages';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -17,6 +17,7 @@ import { CompletionPage } from './pages/operations/CompletionPage';
 import { NextBookingPage } from './pages/operations/NextBookingPage';
 import { ReceptionPage } from './pages/operations/ReceptionPage';
 import { SchedulePage } from './pages/operations/SchedulePage';
+import { WaitlistPage } from './pages/operations/WaitlistPage';
 import { PassDetailPage, PassesPage, PlanDetailPage, PlansPage } from './pages/entitlements/EntitlementPages';
 import { PassProductsPage, PlanProductsPage } from './pages/settings/ProductPages';
 
@@ -39,6 +40,7 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/p/:org" element={<PublicOrgPage />} />
         <Route path="/p/:org/:loc" element={<PublicBookingPage />} />
+        <Route path="/p/:org/:loc/waitlist" element={<PublicWaitlistPage />} />
         <Route path="/b/:token" element={<ManageBookingPage />} />
         {/* 受付モードは全画面(サイドバーなし) */}
         <Route
@@ -71,6 +73,7 @@ export function App() {
           <Route path="settings/pass-products" element={<PassProductsPage />} />
           <Route path="settings/plan-products" element={<PlanProductsPage />} />
           <Route path="schedule" element={<SchedulePage />} />
+          <Route path="waitlist" element={<WaitlistPage />} />
           <Route path="shifts" element={<ShiftsPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
