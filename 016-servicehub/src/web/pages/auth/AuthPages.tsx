@@ -4,6 +4,7 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-r
 import { ROLE_LABELS } from '../../../shared/permissions';
 import { api, ApiError, setCsrfToken } from '../../api/client';
 import { useApi, useMe } from '../../api/hooks';
+import { clearOfflineCaches } from '../../components/Layout';
 import { Alert, Button, Checkbox, ErrorMessage, Spinner, TextField } from '../../components/ui';
 
 function AuthCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -43,6 +44,9 @@ export function LoginPage() {
     try {
       const r = await api.post<{ csrfToken: string }>('/api/v1/auth/login', { email, password, remember });
       setCsrfToken(r.csrfToken);
+      // 共有端末で前の利用者の閲覧キャッシュ(個人情報)が見えないように、ログインのたびに消す
+      await clearOfflineCaches();
+      qc.clear();
       await qc.invalidateQueries({ queryKey: ['me'] });
       navigate(safeNext(params.get('next')), { replace: true });
     } catch (e2) {
@@ -87,6 +91,7 @@ export function SelectOrgPage() {
     try {
       const r = await api.post<{ csrfToken: string }>('/api/v1/auth/switch-org', { organizationId });
       setCsrfToken(r.csrfToken);
+      await clearOfflineCaches();
       qc.clear();
       navigate('/app', { replace: true });
     } catch (e) {

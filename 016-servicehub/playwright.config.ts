@@ -33,9 +33,9 @@ export default defineConfig({
   },
   // e2e-0(主要画面)は全端末。複数端末を1本で扱うシナリオは担当端末のプロジェクトでだけ実行する
   projects: [
-    { name: 'desktop', testIgnore: /e2e-(2|3|5a|5b)-/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'desktop', testIgnore: /e2e-(2|3|5a|5b|p1)-/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     { name: 'iphone', testIgnore: /e2e-(1|2|4|5a|6|7|9)-/, use: { ...devices['iPhone 13'], browserName: 'chromium' } },
-    { name: 'android', testIgnore: /e2e-(1|3|4|5a|5b|6|7|9)-/, use: { ...devices['Pixel 7'], browserName: 'chromium' } },
+    { name: 'android', testIgnore: /e2e-(1|3|4|5a|5b|6|7|9|p1)-/, use: { ...devices['Pixel 7'], browserName: 'chromium' } },
     { name: 'ipad', testIgnore: /e2e-(1|2|3|4|5b|6|7|9)-/, use: { ...devices['iPad Pro 11'], browserName: 'chromium' } },
   ],
 });

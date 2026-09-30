@@ -223,6 +223,13 @@ a:hover {
   padding: 4px 12px;
   font-size: 0.9rem;
 }
+/* タッチ端末では小さいボタンも指で押しやすい大きさ(44px)にする */
+@media (pointer: coarse) {
+  .btn-sm {
+    min-height: var(--tap);
+    padding: 8px 14px;
+  }
+}
 .btn-lg {
   min-height: 56px;
   padding: 12px 22px;

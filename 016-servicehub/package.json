@@ -43,6 +43,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.56.1",
     "@tanstack/react-query": "5.104.0",
     "@types/luxon": "3.7.6",

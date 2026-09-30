@@ -46,10 +46,12 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // 閲覧専用の当日データのみ(GET)。オフライン時は最終取得分を「オフライン表示」として出す
+            // 閲覧専用の当日データのみ(GET)。オフライン時は最終取得分を「オフライン表示」として出す。
+            // ログイン情報(auth/me)も含めないと、通信が切れた状態で開き直したときに画面を表示できない。
+            // ログイン・ログアウト・組織の切替時に画面側でこのキャッシュを消す(共有端末で前の利用者の情報を出さない)
             urlPattern: ({ url, request }) =>
               request.method === 'GET' &&
-              (url.pathname === '/api/v1/today' || url.pathname === '/api/v1/reception/board'),
+              ['/api/v1/auth/me', '/api/v1/today', '/api/v1/reception/board', '/api/v1/dashboard'].includes(url.pathname),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'sh-offline-read',
