@@ -21,7 +21,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
-      injectRegister: 'script',
+      injectRegister: null,
       includeAssets: ['favicon-32.png', 'apple-touch-icon.png', 'icon.svg'],
       manifest: {
         name: 'ServiceHub',

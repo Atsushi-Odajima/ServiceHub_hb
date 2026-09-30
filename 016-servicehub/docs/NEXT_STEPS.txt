@@ -3,7 +3,9 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
 
-現在: Phase 0 (設計資料 + PoC) 仕上げ中
-1. Vite8 + vite-plugin-pwa の PWA 雛形ビルド確認
-2. OPERATING_COSTS.md(料金調査結果を反映)
-3. Phase 1: 認証(セッション/CSRF)・メンバーシップ・拠点スコープ・組織/拠点API・管理UIシェル
+現在: Phase 2 (サービス/スタッフ/シフト/リソース/予約エンジン)
+1. staff / services / resources / shifts API + 画面
+2. src/server/engine/availability.ts (純関数) + loader.ts + 単体テスト
+3. modules/bookings/allocate.ts (確定トランザクション) + 管理側の予約作成API
+開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
+注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。
