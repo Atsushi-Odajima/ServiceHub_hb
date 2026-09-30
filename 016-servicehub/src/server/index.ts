@@ -5,6 +5,7 @@ import { createPool } from './db/pool.js';
 import { systemClock } from './deps.js';
 import { createMailer } from './email/mailer.js';
 import { startBackgroundJobs } from './jobs/runner.js';
+import { RealtimeHub } from './realtime/hub.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -28,13 +29,19 @@ async function main(): Promise<void> {
     if (r.applied.length) console.info(`[db] applied migrations: ${r.applied.join(', ')}`);
   }
   const mailer = createMailer(config);
-  const deps = { pool, config, clock: systemClock, mailer, log: console };
+  const realtime = new RealtimeHub(
+    config.DATABASE_URL,
+    config.DATABASE_SSL === 'require' ? { rejectUnauthorized: true } : config.DATABASE_SSL === 'no-verify' ? { rejectUnauthorized: false } : undefined,
+  );
+  await realtime.start();
+  const deps = { pool, config, clock: systemClock, mailer, log: console, realtime };
   const app = await buildApp(deps);
   const stopJobs = config.RUN_WORKER ? startBackgroundJobs(deps) : null;
 
   const shutdown = async (signal: string) => {
     console.info(`[server] ${signal} received, shutting down`);
     stopJobs?.();
+    await realtime.stop();
     await app.close();
     await pool.end();
     process.exit(0);

@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import type { AppConfig } from './config.js';
 import type { Mailer } from './email/mailer.js';
+import type { RealtimeHub } from './realtime/hub.js';
 
 export interface Clock {
   now(): Date;
@@ -38,4 +39,6 @@ export interface Deps {
   clock: Clock;
   mailer: Mailer;
   log: Logger;
+  /** LISTEN/NOTIFY による SSE 配信(テストでは省略可) */
+  realtime?: RealtimeHub | null;
 }

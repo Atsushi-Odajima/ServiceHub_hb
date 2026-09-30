@@ -3,8 +3,11 @@ import type { Deps } from './deps.js';
 import { registerAuthRoutes } from './modules/auth/routes.js';
 import { registerBookingRoutes } from './modules/bookings/routes.js';
 import { registerCustomerRoutes } from './modules/customers/routes.js';
+import { registerEntitlementRoutes } from './modules/entitlements/routes.js';
 import { registerNotificationRoutes } from './modules/notifications/routes.js';
 import { registerPublicRoutes } from './modules/public/routes.js';
+import { registerReceptionRoutes } from './modules/reception/routes.js';
+import { registerRecordRoutes } from './modules/records/routes.js';
 import { registerLocationRoutes } from './modules/locations/routes.js';
 import { registerMemberRoutes } from './modules/members/routes.js';
 import { registerOrgRoutes } from './modules/org/routes.js';
@@ -26,4 +29,7 @@ export async function registerRoutes(app: FastifyInstance, deps: Deps): Promise<
   await registerCustomerRoutes(app, deps);
   await registerPublicRoutes(app, deps);
   await registerNotificationRoutes(app, deps);
+  await registerRecordRoutes(app, deps);
+  await registerReceptionRoutes(app, deps);
+  await registerEntitlementRoutes(app, deps);
 }
