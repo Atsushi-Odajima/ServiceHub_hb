@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { SHIFT_TYPES, type ShiftType } from '../../../shared/constants.js';
-import { addDays, daysBetween, isoWeekday, localDayRange, localToUtc, localToUtcLenient } from '../../../shared/time.js';
+import { daysBetween } from '../../../shared/time.js';
 import { actorOf, writeAudit } from '../../audit.js';
 import { type AuthContext, can, locationScope, requireAuth } from '../../auth/context.js';
 import { withTenant, type Q } from '../../db/tx.js';
+import { generateShiftsFromTemplates } from './generate.js';
 import type { Deps } from '../../deps.js';
 import { AppError, forbidden, notFound } from '../../errors.js';
 import { parse, zDate, zIso, zOptText, zTime, zUuid } from '../../http/validate.js';
@@ -351,71 +352,22 @@ export async function registerShiftRoutes(app: FastifyInstance, deps: Deps): Pro
     const days = daysBetween(body.from, body.to);
     if (days < 0 || days > 92) throw new AppError('VALIDATION_ERROR', '期間は92日以内で指定してください');
     return withTenant(pool, { orgId: ctx.orgId, userId: ctx.userId }, async (q) => {
-      let created = 0;
-      let skippedExisting = 0;
-      let skippedClosed = 0;
       for (const staffId of body.staffIds) {
         const st = await staffLocations(q, ctx.orgId, staffId);
         assertCanManageStaff(ctx, st.locationIds, null);
-        if (st.status !== 'active') continue;
-        const templates = await q.many<{ location_id: string; weekday: number; shift_type: 'work' | 'break'; start_time: string; end_time: string; timezone: string }>(
-          `SELECT t.location_id, t.weekday, t.shift_type, t.start_time, t.end_time, l.timezone
-             FROM shift_templates t JOIN locations l ON l.id = t.location_id AND l.status = 'active'
-            WHERE t.organization_id = $1 AND t.staff_id = $2`,
-          [ctx.orgId, staffId],
-        );
-        const scope = locationScope(ctx);
-        for (let i = 0; i <= days; i++) {
-          const date = addDays(body.from, i);
-          const wd = isoWeekday(date);
-          const todays = templates.filter((t) => t.weekday === wd && (!scope || scope.includes(t.location_id)));
-          if (todays.length === 0) continue;
-          const tz = todays[0].timezone;
-          const range = localDayRange(date, tz);
-          const existing = await q.maybeOne(
-            `SELECT 1 FROM staff_shifts WHERE organization_id = $1 AND staff_id = $2 AND starts_at >= $3 AND starts_at < $4 LIMIT 1`,
-            [ctx.orgId, staffId, range.start, range.end],
-          );
-          if (existing) {
-            skippedExisting++;
-            continue;
-          }
-          let closedLocs = new Set<string>();
-          if (body.skipClosedDays) {
-            const locIds = [...new Set(todays.map((t) => t.location_id))];
-            const closed = await q.many<{ location_id: string }>(
-              `SELECT l.id AS location_id FROM locations l
-                WHERE l.organization_id = $1 AND l.id = ANY($2::uuid[])
-                  AND (EXISTS (SELECT 1 FROM location_exceptions e WHERE e.location_id = l.id AND e.date = $3 AND e.kind = 'closed')
-                       OR (NOT EXISTS (SELECT 1 FROM location_exceptions e2 WHERE e2.location_id = l.id AND e2.date = $3)
-                           AND NOT EXISTS (SELECT 1 FROM location_hours h WHERE h.location_id = l.id AND h.weekday = $4)))`,
-              [ctx.orgId, locIds, date, wd],
-            );
-            closedLocs = new Set(closed.map((c) => c.location_id));
-          }
-          for (const t of todays) {
-            if (closedLocs.has(t.location_id)) {
-              skippedClosed++;
-              continue;
-            }
-            const s = localToUtc(date, t.start_time, t.timezone) ?? localToUtcLenient(date, t.start_time, t.timezone);
-            const e = localToUtcLenient(date, t.end_time, t.timezone);
-            await q.exec(
-              `INSERT INTO staff_shifts (organization_id, staff_id, location_id, shift_type, starts_at, ends_at, source, created_by_membership_id)
-               VALUES ($1,$2,$3,$4,$5,$6,'template',$7)`,
-              [ctx.orgId, staffId, t.location_id, t.shift_type, s, e, ctx.membershipId],
-            );
-            created++;
-          }
-        }
       }
+      const r = await generateShiftsFromTemplates(q, ctx.orgId, body.staffIds, body.from, days, {
+        skipClosedDays: body.skipClosedDays,
+        scope: locationScope(ctx),
+        createdBy: ctx.membershipId,
+      });
       await writeAudit(q, ctx.orgId, actorOf(ctx), {
         action: 'shift.generated',
         targetType: 'staff',
-        metadata: { staffIds: body.staffIds, from: body.from, to: body.to, created, skippedExisting, skippedClosed },
+        metadata: { staffIds: body.staffIds, from: body.from, to: body.to, ...r },
         requestId: req.id,
       });
-      return { created, skippedExisting, skippedClosed };
+      return r;
     });
   });
 }

@@ -3,10 +3,11 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
 
-現在: Phase 3 (公開予約/顧客/事前質問/変更・キャンセル/通知)
-1. customers API(検索・詳細・タイムライン・メモ・重複候補・統合) + 画面
-2. public API(/api/v1/public/...: 組織/拠点/サービス/スタッフ/空き/予約確定/管理トークンで照会・変更・キャンセル) + 公開予約画面
-3. 通知ワーカー/スケジューラ(outbox送信・再試行・リマインダー)、テンプレート
-4. 管理側: 予定表(日表示)・予約一覧・予約詳細・予約作成モーダル
+現在: Phase 4 (複数拠点運用/受付/実施記録/次回予約)
+1. SSE(/api/v1/events, LISTEN/NOTIFY)、予定表(日表示・スタッフ列)、今日の画面(/api/v1/today)
+2. 受付モード(/api/v1/reception/board、大きなカード、来店→対応中→完了/欠席/取消)
+3. 完了+実施記録(/api/v1/bookings/:id/complete, service_records CRUD, 取消)、次回予約(/app/bookings/:id/next)
+4. 移動時間は org settings.travelBufferMinutes(実装済み)。複数拠点の横断確認画面
+サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
 開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。
