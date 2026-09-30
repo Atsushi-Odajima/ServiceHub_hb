@@ -3,14 +3,14 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
 
-現在: Phase 8 (KPI/検索/CSV/監査)
-1. KPI(/api/v1/kpi, /app/kpi): CALCULATION_RULES.md の定義どおり(期間・分母を明示、欠損は0にしない、拠点横断で同一予約を二重計上しない=必須 #20)。
-   予約数・完了率・キャンセル率(顧客/事業者)・無断欠席率・新規/リピート・スタッフ稼働率(勤務時間に対する実施時間)・回数券消化・プラン利用率・待機→予約化
-2. 横断検索(/api/v1/search, /app/search): 顧客・予約番号・回数券・スタッフ。権限・拠点スコープ内のみ
-3. CSV 出力(UTF-8 BOM・引用・数式インジェクション対策 = 先頭 = + - @ タブ CR をエスケープ): 顧客/予約/サービス・スタッフ/回数券台帳・プラン台帳・実施履歴
-4. CSV 取込(顧客・予約など): プレビュー → 検証 → エラー一覧 → 確認 → 反映、同じファイルの二重取込防止(内容ハッシュ)
-5. 監査ログ画面(/app/audit): 期間・操作者・対象で絞り込み。Manager は担当拠点のみ
-6. E2E-5(Reception/Staff の権限: 経営KPI・Owner設定が使えない)を追加
+現在: Phase 9 (バックアップ/復元・セキュリティ・負荷/競合)
+1. 組織単位のバックアップ(CLI: pnpm backup:create / backup:verify / backup:restore、画面: 設定 > バックアップ で作成・検証・ダウンロード)
+   - 形式: JSON(gzip) + manifest(schemaVersion / appVersion / createdAt / 件数 / チェックサム)、任意で AES-256-GCM 暗号化(BACKUP_ENCRYPTION_KEY)
+   - 復元: 検証 → 空の組織(または別DB)へ1トランザクションで投入 → 件数・台帳残数の照合 → 失敗時は全て巻き戻し。必須 #19、E2E-7
+2. セキュリティ確認: テナント分離テスト一式(全APIを他組織IDで叩いて404/403)、RBAC 表の網羅テスト、CSRF/Origin、レート制限、XSS(出力エスケープ)、ログの個人情報、依存パッケージ監査
+3. 負荷データ生成(tests/load): 100組織/500拠点/5,000スタッフ/50万顧客/200万予約/200万台帳/500万通知 を段階的に生成し、
+   今日の画面・空き枠・顧客検索・予約一覧・KPI・権限チェックの応答時間を測定(販売保証値ではない)。同一枠高並行・回数券同時消化・同一顧客同時更新
+4. OPERATIONS.md(バックアップ・復元・障害時の手順)
 サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
 開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。

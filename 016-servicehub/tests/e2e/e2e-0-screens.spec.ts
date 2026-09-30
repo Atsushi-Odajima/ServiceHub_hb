@@ -19,6 +19,11 @@ const PAGES: { path: string; heading: RegExp }[] = [
   { path: '/app/settings/pass-products', heading: /回数券の種類/ },
   { path: '/app/settings/plan-products', heading: /利用プランの種類/ },
   { path: '/app/reception', heading: /受付モード/ },
+  { path: '/app/waitlist', heading: /待機リスト/ },
+  { path: '/app/kpi', heading: /運営KPI/ },
+  { path: '/app/search?q=%E5%B8%B8%E9%80%A3', heading: /検索/ },
+  { path: '/app/csv', heading: /CSV入出力/ },
+  { path: '/app/audit', heading: /監査ログ/ },
 ];
 
 test('主要画面の表示(はみ出し・エラーなし)', async ({ page }) => {

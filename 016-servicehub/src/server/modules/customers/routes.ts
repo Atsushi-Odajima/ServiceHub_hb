@@ -95,6 +95,33 @@ async function loadCustomer(q: Q, orgId: string, id: string, forUpdate = false):
   return c;
 }
 
+/** 検索語で顧客を探す(電話/メール/氏名・かなの前方一致 → 足りなければ部分一致)。where/params には可視性条件を含めて渡す */
+export async function searchCustomerRows(q: Q, where: string[], params: unknown[], text: string, order: string, limit: number): Promise<CustomerRowFull[]> {
+  let rows: CustomerRowFull[] = [];
+  const p1 = [...params];
+  const cond = searchCondition(text, p1);
+  if (cond) {
+    p1.push(limit);
+    rows = await q.many<CustomerRowFull>(`SELECT c.* FROM customers c WHERE ${[...where, cond].join(' AND ')} ORDER BY ${order} LIMIT $${p1.length}`, p1);
+  }
+  // 前方一致で足りない場合は部分一致(組織内で絞り込み、件数上限あり)
+  if (rows.length < limit && text.trim().length >= 2 && !/^[0-9\-+() ]+$/.test(text)) {
+    const p2 = [...params];
+    p2.push(`%${normalizeName(text).replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
+    const likeIdx = p2.length;
+    p2.push(rows.map((r) => r.id));
+    const exIdx = p2.length;
+    p2.push(limit - rows.length);
+    const more = await q.many<CustomerRowFull>(
+      `SELECT c.* FROM customers c WHERE ${where.join(' AND ')} AND (c.name_norm LIKE $${likeIdx} OR c.kana_norm LIKE $${likeIdx})
+         AND NOT (c.id = ANY($${exIdx}::uuid[])) ORDER BY ${order} LIMIT $${p2.length}`,
+      p2,
+    );
+    rows = rows.concat(more);
+  }
+  return rows;
+}
+
 export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): Promise<void> {
   const { pool, clock } = deps;
 
@@ -124,33 +151,7 @@ export async function registerCustomerRoutes(app: FastifyInstance, deps: Deps): 
       }
       const order =
         qy.sort === 'created' ? 'c.created_at DESC' : qy.sort === 'name' ? 'c.name_norm ASC' : 'c.last_visit_at DESC NULLS LAST, c.created_at DESC';
-      let rows: CustomerRowFull[] = [];
-      if (qy.q) {
-        const p1 = [...params];
-        const cond = searchCondition(qy.q, p1);
-        if (cond) {
-          p1.push(qy.limit);
-          rows = await q.many<CustomerRowFull>(`SELECT c.* FROM customers c WHERE ${[...where, cond].join(' AND ')} ORDER BY ${order} LIMIT $${p1.length}`, p1);
-        }
-        // 前方一致で足りない場合は部分一致(組織内で絞り込み、件数上限あり)
-        if (rows.length < qy.limit && qy.q.trim().length >= 2 && !/^[0-9\-+() ]+$/.test(qy.q)) {
-          const p2 = [...params];
-          p2.push(`%${normalizeName(qy.q).replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
-          const likeIdx = p2.length;
-          p2.push(rows.map((r) => r.id));
-          const exIdx = p2.length;
-          p2.push(qy.limit - rows.length);
-          const more = await q.many<CustomerRowFull>(
-            `SELECT c.* FROM customers c WHERE ${where.join(' AND ')} AND (c.name_norm LIKE $${likeIdx} OR c.kana_norm LIKE $${likeIdx})
-               AND NOT (c.id = ANY($${exIdx}::uuid[])) ORDER BY ${order} LIMIT $${p2.length}`,
-            p2,
-          );
-          rows = rows.concat(more);
-        }
-      } else {
-        params.push(qy.limit);
-        rows = await q.many<CustomerRowFull>(`SELECT c.* FROM customers c WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length}`, params);
-      }
+      const rows = qy.q ? await searchCustomerRows(q, where, params, qy.q, order, qy.limit) : await q.many<CustomerRowFull>(`SELECT c.* FROM customers c WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.push(qy.limit)}`, params);
       return { items: rows.map((r) => ({ ...customerDto(r), memo: undefined })) };
     });
   });

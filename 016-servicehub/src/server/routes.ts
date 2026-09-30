@@ -1,10 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { Deps } from './deps.js';
+import { registerAuditRoutes } from './modules/audit/routes.js';
 import { registerAuthRoutes } from './modules/auth/routes.js';
 import { registerBookingRoutes } from './modules/bookings/routes.js';
+import { registerCsvRoutes } from './modules/csv/routes.js';
 import { registerCustomerRoutes } from './modules/customers/routes.js';
 import { registerDashboardRoutes } from './modules/dashboard/routes.js';
 import { registerEntitlementRoutes } from './modules/entitlements/routes.js';
+import { registerKpiRoutes } from './modules/kpi/routes.js';
 import { registerNotificationRoutes } from './modules/notifications/routes.js';
 import { registerPublicRoutes } from './modules/public/routes.js';
 import { registerReceptionRoutes } from './modules/reception/routes.js';
@@ -13,6 +16,7 @@ import { registerLocationRoutes } from './modules/locations/routes.js';
 import { registerMemberRoutes } from './modules/members/routes.js';
 import { registerOrgRoutes } from './modules/org/routes.js';
 import { registerResourceRoutes } from './modules/resources/routes.js';
+import { registerSearchRoutes } from './modules/search/routes.js';
 import { registerServiceRoutes } from './modules/services/routes.js';
 import { registerShiftRoutes } from './modules/shifts/routes.js';
 import { registerStaffRoutes } from './modules/staff/routes.js';
@@ -36,4 +40,8 @@ export async function registerRoutes(app: FastifyInstance, deps: Deps): Promise<
   await registerEntitlementRoutes(app, deps);
   await registerWaitlistRoutes(app, deps);
   await registerDashboardRoutes(app, deps);
+  await registerKpiRoutes(app, deps);
+  await registerSearchRoutes(app, deps);
+  await registerCsvRoutes(app, deps);
+  await registerAuditRoutes(app, deps);
 }
