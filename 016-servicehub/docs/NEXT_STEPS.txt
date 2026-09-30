@@ -4,17 +4,19 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
     負荷試験用 servicehub_load(pnpm load:generate で作り直し。容量が大きいので不要なら DROP DATABASE)
 
-現在: Phase 10 (端末E2E・アクセシビリティ・購入者向け説明書・デプロイ・販売前チェック)
-1. 端末E2E: PC/iPhone/Android/iPad(Chromium の端末エミュレーション)で E2E-1〜7 と主要画面を通す(tests/e2e、pnpm test:e2e)。
-   実機 Safari/WebKit・実機 Android Chrome での確認は RELEASE_CHECKLIST.md の「人が行う確認」に列挙(この環境では不可)
-2. アクセシビリティ: 色だけで状態を示さない・label・キーボード操作・フォーカス表示・タップ領域(44px)・エラーの関連付け・受付モードの見やすさ。
-   Playwright で主要画面を axe 相当の観点(ラベル/ランドマーク/コントラストは目視)で点検し、問題を修正
-3. 購入者向け資料(manual/ に .txt): はじめに / 初期設定ガイド / 複数店舗の設定 / スタッフと権限 / 予約とシフト / 受付モード / 顧客管理 /
-   回数券の使い方 / 利用プランの使い方 / スマホ・iPadで使う / キャンセル・無断欠席 / バックアップと復元 / 注意事項 / サンプル組織説明 / THIRD_PARTY_NOTICES
-   (THIRD_PARTY_NOTICES は scripts/third-party-notices.mjs で本番依存のライセンスから生成: pnpm notices)
-4. デプロイ: Dockerfile / docker-compose.yml(app + postgres、非superuserロール作成)/ render.yaml(Render Blueprint)。
-   OPERATIONS.md 1章に手順を追記(本番公開・有料契約はしない。手順書と設定ファイルのみ)
-5. RELEASE_CHECKLIST.md(30の完成条件の対応表・人が行う確認)、TEST_REPORT.md、PROGRESS.md、最終報告
+現在: Phase 0〜10 の実装・自動テスト・資料は完了。
+残り(開発環境ではできないため、人が行う確認): docs/RELEASE_CHECKLIST.md の4章
+  1. 実機(iPhone Safari / Android Chrome / iPad Safari / PC)での操作確認 … 完成条件28(実機E2E)はこれが済むまで未達
+  2. 本番相当のホスティングでの作成・HTTPS/HSTS・btree_gist・ワーカー
+  3. SMTP の実送信(SPF/DKIM/DMARC)
+  4. 料金の公式ページでの再確認、規約・法務
+  5. 第三者による脆弱性診断(推奨)、本番環境での性能確認
+  6. Turnstile を使う場合は実際のキーでの確認
+新機能は追加しない(仕様の完成条件を満たした後は、見つかった不具合の修正のみ)。
+
+確認のコマンド:
+  pnpm typecheck && pnpm test && pnpm test:e2e
+  pnpm notices               (依存を変えたら THIRD_PARTY_NOTICES を作り直す)
 サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
-開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
+開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。

@@ -65,7 +65,7 @@ ServiceHub を運用する人(購入者の管理担当・導入を手伝う人)�
 | `MIGRATE_ON_START` | | `true` で起動時に DB 構造を更新 |
 | `RUN_WORKER` | | `true` で Web プロセス内で通知ワーカー/日次処理を動かす |
 | `TRUST_PROXY` | | ホスティングのロードバランサ配下では `true`(IP 単位の回数制限を正しく行うため) |
-| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | | 公開予約の bot 対策(任意) |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | | 公開予約・キャンセル待ちの bot 対策(任意。Cloudflare Turnstile のキー)。**両方そろえて設定**する(片方だけだと起動しない)。設定すると公開ページに確認欄が出て、確認が済むまで送信できない。実際のキーでの動作は導入時に確認する |
 | `LOG_LEVEL` | | 既定 `info`。ログには個人情報(メール・電話・氏名・検索語・トークン)を出さない |
 | `SETUP_ORG_SLUG` ほか `SETUP_*` | | 初回セットアップ(1.0)。組織が1つもないときだけ使われる。**作成後は `SETUP_OWNER_PASSWORD` を削除** |
 | `SEED_SAMPLE_ON_START` | | `true` でサンプル組織を作る(無ければ)。**試用環境だけ**で使う(1.0) |
@@ -83,6 +83,7 @@ ServiceHub を運用する人(購入者の管理担当・導入を手伝う人)�
 | バックアップ作成 | `node dist/server/cli/backup.js create --org <URL名>` | `pnpm backup:create -- --org <URL名>` |
 | バックアップ検証 | `node dist/server/cli/backup.js verify --file <ファイル>` | `pnpm backup:verify -- --file ...` |
 | 復元 | `node dist/server/cli/backup.js restore --file <ファイル> [...]` | `pnpm backup:restore -- ...` |
+| パスワード再設定リンクの発行(メール未設定時の復旧) | `node dist/server/cli/reset-password.js --email <メール> [--hours 24]` | `pnpm reset:password -- --email ...` |
 
 ---
 
@@ -238,8 +239,9 @@ node dist/server/cli/backup.js restore --file <ファイル> --replace <URL名> 
 | 画面が遅い | LOAD_TEST_REPORT.md の測定条件と比較。DB のプラン(メモリ・CPU)を確認。`ANALYZE` の実行 |
 
 ### 7.3 セキュリティ上の事象
+- オーナーがパスワードを忘れた(メール送信が未設定・他にオーナーがいない): `node dist/server/cli/reset-password.js --email <メール>` で再設定リンク(1回限り・既定24時間)を発行し、本人にだけ安全な方法で渡す。発行は監査ログに記録される。再設定するとその人のログインはすべて切れる。
 - アカウントの乗っ取りが疑われる: 設定 > メンバーと権限 で該当メンバーを「無効」にする(その人のすべてのセッションが即時に切れる)。本人にパスワード再設定を依頼する。監査ログで操作を確認する。
-- `SESSION_SECRET` の漏えい: 値を変更して再起動する(全員が再ログインになる。既に送ったメールの予約管理リンクは引き続き使えるが、以後のメールのリンクは新しい値で作られる)。
+- `SESSION_SECRET` の漏えい: 値を変更して再起動する。ログイン中のセッションには影響しない(セッションは DB で管理し、この値は使わない)。既に送ったメールの予約管理リンクは引き続き使えるが、**既存の予約について以後に送るメール(リマインダー等)のリンクは無効になる**(9.3)。お客様には予約番号で店舗へ連絡するよう案内する。
 - バックアップファイルの紛失: 個人情報の漏えいとして組織の手順に従う。暗号化していた場合でもキーの管理状況を確認する。
 
 ---

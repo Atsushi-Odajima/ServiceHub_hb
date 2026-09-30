@@ -1,6 +1,6 @@
 # 進捗 (PROGRESS.md)
 
-最終更新: 2026-09-30(Phase 9 まで)
+最終更新: 2026-09-30(Phase 10)
 
 ## Phase 状態
 | Phase | 状態 | メモ |
@@ -15,7 +15,7 @@
 | 7 待機/定員/ロール別画面 | 完了 | 待機リスト(登録・候補抽出・運営者の案内・先着順の再判定・予約で自動クローズ・期限切れ)、公開のキャンセル待ち登録、クラスの定員表示、ロール別ダッシュボード |
 | 8 KPI/検索/CSV/監査 | 完了 | 運営KPI(期間・分母明示、欠損は—、拠点別合計=全体、稼働率)、横断検索、CSV出力7種(BOM・数式対策・カーソル分割)、CSV取込3種(プレビュー→検証→反映・二重取込防止)、監査ログ画面、画面単位の権限表示 |
 | 9 バックアップ/セキュリティ/負荷・競合 | 完了 | 組織バックアップ(作成・検証・1トランザクション復元・台帳の再生照合・暗号化)画面とCLI、E2E-7、全APIのテナント分離/RBAC網羅/CSRF/XSS/ログ/レート制限テスト、競合の重点テスト、目標規模での負荷測定(LOAD_TEST_REPORT.md)、OPERATIONS.md |
-| 10 端末E2E/アクセシビリティ/説明書/デプロイ/販売前チェック | 未着手 | |
+| 10 端末E2E/アクセシビリティ/説明書/デプロイ/販売前チェック | **一部未完了** | アクセシビリティ・説明書・デプロイ・販売前チェック資料は完了。端末E2Eは Chromium の端末エミュレーション(PC/iPhone/Android/iPad)で完了、**実機 E2E は未実施**(この環境に実機・Safari がない。RELEASE_CHECKLIST.md 4.1 で人が行う) |
 
 ## Phase 0 記録
 - 環境: Node 22.22 / pnpm 10.33 / PostgreSQL 16.13 / Chromium(Playwright 1.56.1 付属)。Docker デーモンなし。
@@ -96,3 +96,13 @@
 - 負荷: tests/load/generate.ts(scale で段階的に生成。scale=1 で目標規模・約16分)と run.ts(実サーバーを autocannon で測定)。空き枠計算の無駄を解消。結果は LOAD_TEST_REPORT.md(販売保証値ではない)
 - 並び順の安定化: 一覧の ORDER BY に ID を追加、array_agg に ORDER BY、顧客タイムラインのカーソルを「日時|行ID」に
 - 資料: OPERATIONS.md(環境変数・コマンド・アップデート・バックアップ・復元・障害対応・定期作業)、SECURITY.md、DECISIONS.md(D-028〜D-031)、DATA_MODEL.md、TEST_REPORT.md、LOAD_TEST_REPORT.md
+
+## Phase 10 記録
+- 端末E2E(Chromium の端末エミュレーション: PC 1366px / iPhone 13 / Pixel 7 / iPad Pro 11): E2E-1〜7、主要画面、アクセシビリティ、XSS、PWA/オフライン、入力の下書き、Turnstile。**実機は未実施**
+- アクセシビリティ: axe-core(WCAG 2.1 A/AA)で主要24画面 × 4端末の critical/serious 0件、キーボード操作(スキップリンク・ダイアログのフォーカス閉じ込めと戻り・フォーカス表示)、入力エラーの関連付け(aria-invalid/aria-describedby/role=alert)、タッチ端末で44px以上、状態は色+文字/記号、受付モードの状態・時刻は16px以上。小さいボタンをタッチ端末で44pxに
+- PWA/オフライン: ホーム画面追加の情報(manifest/apple-touch-icon/theme-color)、オフライン表示・操作不可・最後の受付ボードの閲覧、ログアウトで閲覧キャッシュ削除(e2e-p1)。**入力の下書き**(実施記録・顧客情報・顧客メモを端末に保存・未送信表示・再接続で読み直し・送れなかった内容の表示・ログアウト時に件数確認して削除)を実装(仕様「オフライン入力は下書き/未同期表示。再接続時に最新状態を再検証」。e2e-p2)
+- デプロイ: Dockerfile / docker-compose.yml / deploy/postgres/init-app-db.sh / deploy/docker.env.example / render.yaml。環境変数による初回セットアップ(SETUP_*)、SEED_SAMPLE_ON_START、`seed-sample --delete`、`reset-password` CLI、空文字の環境変数の扱い・RENDER_EXTERNAL_URL。この環境で Docker イメージのビルドと docker compose での起動・初回セットアップ・サンプル作成/削除・ログイン・バックアップ・再起動を確認(D-032)。本番公開・有料契約はしていない
+- 仕様との突き合わせで追加・修正(D-034): 検索に回数券・拠点、CSV「キャンセル・無断欠席」、ダッシュボードの利用プラン残り、重複候補の見える範囲、締切後キャンセル/無断欠席の消化の取消を画面に、「完了時は表示しない」設定の反映、過去の予約の復元(理由付きの強制)、無断欠席・リソースのアーカイブの確認、テーマカラーの反映、シフトの他拠点表示、表示名の変更、Turnstile の画面側(D-033)
+- 説明書: manual/ の15ファイル(UTF-8 BOM・CRLF)。THIRD_PARTY_NOTICES.txt は `pnpm notices`(scripts/third-party-notices.mjs)で本番の依存・画面に同梱されるライブラリ・Service Worker のライブラリから生成
+- 販売前チェック: docs/RELEASE_CHECKLIST.md(完成条件30項目の対応・必須テスト20件・E2E・人が行う確認・配布物・既知の制限)。README.md(入口)
+- 資料: OPERATIONS.md(1章 デプロイ、コマンド、復旧)、OPERATING_COSTS.md(誤りの修正)、SECURITY.md、DECISIONS.md(D-032〜D-034)、DEVELOPMENT.md、TEST_REPORT.md

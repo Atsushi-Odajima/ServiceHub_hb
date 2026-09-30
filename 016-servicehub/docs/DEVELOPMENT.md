@@ -62,6 +62,9 @@ docs/                  開発資料   manual/  購入者向け資料
 | `pnpm backup:create -- --org <slug> --out file` | 組織バックアップ |
 | `pnpm backup:verify -- --file f` | バックアップ検証 |
 | `pnpm backup:restore -- --file f [--replace <slug>] [--dry-run] [--database-url <url>] [--migrate]` | 復元(既定は同じ組織がない環境へ。`--replace` で置き換え。1トランザクションで失敗時は現行データ維持) |
+| `pnpm reset:password -- --email <メール>` | パスワード再設定リンクを発行(運用担当者向け。メール未設定時の復旧) |
+| `pnpm db:seed:sample -- --delete` | サンプル組織とサンプル専用のログインを削除 |
+| `pnpm notices` | manual/THIRD_PARTY_NOTICES.txt を依存パッケージから生成(依存を変えたら実行) |
 | `pnpm load:generate -- --scale 0.1` | 負荷試験用データを servicehub_load に生成(scale=1 で目標規模・約8GB) |
 | `pnpm build && pnpm load:run -- --out docs/LOAD_TEST_REPORT.md` | 負荷試験の測定(ビルド済みサーバーを起動して autocannon で測る) |
 
@@ -69,3 +72,12 @@ docs/                  開発資料   manual/  購入者向け資料
 - 新しい API ルートは `tests/integration/security.test.ts` が自動で網羅する(未ログイン 401・他組織IDで成功しない)。パス中の `:param` が新しい種類の場合は `TABLE_BY_SEGMENT` に対応を追加する。
 - 新しい表は `src/server/backup/spec.ts` のバックアップ対象か除外(理由付き)に加える(`backup-restore.test.ts` が検査)。
 - 一覧 API の ORDER BY は最後に ID を加えて順序を一意にする(ページング・復元の照合で必要)。
+
+## 8. 購入者向け説明書(manual/)
+- `manual/*.txt` は **UTF-8(BOM 付き)・CRLF** で保存する(Windows のメモ帳でも文字化けしないように)。編集後は次で整える:
+  `python3 -c "import pathlib;[p.write_bytes(('\ufeff'+p.read_text(encoding='utf-8-sig').replace('\r\n','\n')).replace('\n','\r\n').encode()) for p in pathlib.Path('manual').glob('*.txt')]"`
+- 画面の文字(メニュー・ボタン・項目名)は「」でソースと同じ表記にする。機能を変えたら該当する説明書も直す。
+
+## 9. デプロイ設定の確認(Docker)
+- `docker build -t servicehub .` → `docker compose up -d`(`deploy/docker.env.example` を `.env` に)。Phase 10 ではこの手順でビルドと起動(DB 初期化・移行・初回オーナー作成・サンプル作成/削除・ログイン・バックアップ・再起動)を確認した。
+- 通信を中継・検査する環境(社内プロキシ等)で `pnpm install` が証明書エラーになる場合は、その環境の CA をビルド時だけ追加した一時的な Dockerfile を使う(製品の Dockerfile は変更しない)。

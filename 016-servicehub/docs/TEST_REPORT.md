@@ -71,3 +71,32 @@
   - 一覧の並び順が同順位で不定(予約・顧客・タイムラインなど、復元後の比較で発見)→ ID を最後の並び替えキーに。顧客タイムラインのページングを「日時|行ID」のカーソルに(同じ日時の取りこぼし防止)
   - 空き枠計算が大量データで遅い → 1回の計算内で結果を再利用(p50 311ms → 57ms @ scale 0.02)
 - 未検証(人が行う確認として RELEASE_CHECKLIST.md に記載予定): 実機 Safari/Android での画面からのバックアップのダウンロード・アップロード、本番ホスティング(別サーバーの DB)での性能
+
+## Phase 10 (2026-09-30)
+- `pnpm typecheck` … 合格
+- `pnpm test` … **231/231 合格**(19ファイル)
+
+| 追加・拡張したテスト | 件数 | 主な内容 |
+|---|---|---|
+| tests/unit/config.test.ts(新規) | 7 | 空文字の環境変数は未設定扱い、短い暗号化キーは起動拒否、APP_BASE_URL 末尾の / 除去、Render の RENDER_EXTERNAL_URL、本番で公開URLなしは起動拒否、Turnstile のキーは両方必須、見本の SESSION_SECRET を拒否 |
+| tests/integration/setup-bootstrap.test.ts(新規) | 5 | 環境変数による初回セットアップ(不正値・空欄では作らない、1回だけ、パスワードをログに出さない)、`reset-password` CLI で再設定リンクを発行 → 再設定 → ログイン(1回限り・監査ログ)、サンプル組織を1回だけ作成、サンプル組織とサンプル専用ログインの削除(本番の組織は不変) |
+| tests/integration/turnstile.test.ts(新規) | 3 | 公開設定でサイトキーのみ返す、トークンなし・検証失敗は予約不可・成功なら予約可(検証サーバーへ送る値)、キャンセル待ちも検証 |
+| kpi-search-csv-audit(+2) | 15 | 検索の回数券(顧客名・券の名前、受付/Manager は担当拠点の顧客のみ、LIKE 記号は文字扱い)と拠点(担当外は返さない)、CSV「キャンセル・無断欠席」(区分・日時・操作者・拠点スコープ) |
+| public-customers-notifications(+1) | 22 | 重複候補は見てよい顧客だけ(担当拠点外の顧客の氏名・連絡先を出さない) |
+| records-entitlements(拡張) | 25 | 締切後キャンセルで消化 → 取消(+1)で確認待ちに戻る → 再度消化 |
+| auth-rbac(+1) / booking-engine(+1) / waitlist-dashboard(拡張) / security(拡張) | | 表示名の変更(本人のみ・監査)、拠点のシフト一覧に所属スタッフの他拠点勤務、ダッシュボードの利用プラン残り(受付には出さない)、CSV の全種類で他組織のデータが出ない |
+
+- `pnpm test:e2e`(Playwright 1.56.1 / Chromium の端末エミュレーション)… **42 合格 / 8 スキップ / 失敗 0**(スキップは端末を限定したテストの対象外端末: キーボード操作は PC のみ、エラーの関連付けは PC・iPhone、色以外の表示は PC・iPad、44px はタッチ端末のみ)
+
+| 追加した E2E | 端末 | 内容 |
+|---|---|---|
+| e2e-8-accessibility | 4端末 | axe(WCAG 2.1 A/AA)で24画面の critical/serious 0件、キーボード操作、エラーの関連付け、44px、色以外の状態表示・受付モード16px |
+| e2e-p1-pwa-offline | iPhone / iPad | manifest・アイコン・Service Worker、オフライン表示と操作不可、最後の受付ボードの閲覧、再接続、ログアウトでキャッシュ削除 |
+| e2e-p2-offline-drafts | PC / iPhone | オフラインの入力が下書きとして残る・未送信表示・送信不可 → 再接続で読み直し → 開き直しても復元 → 完了で下書き削除、他端末で先に完了されたら送らず内容を表示、顧客メモの下書きとログアウト時の確認 |
+| e2e-p3-turnstile | iPhone | Turnstile 設定時は確認が済むまで「予約する」を押せず、確認後に予約でき、サーバーがトークンを検証(Cloudflare はテスト用の代替) |
+
+- デプロイ設定の確認(この環境で実施): `docker build` でイメージ作成(通信を中継する環境のため CA を追加した一時 Dockerfile を使用。手順は製品の Dockerfile と同じ)→ `docker compose up`(PostgreSQL 16 の初期化で superuser でないアプリ用ロールを作成 → 起動時の移行 → SETUP_* で組織・オーナー作成 → サンプル組織作成)→ ログイン・画面配信・manifest/Service Worker・公開ページ・バックアップのダウンロードと検証・CLI のバックアップ/検証・`seed-sample --delete`・SETUP_OWNER_PASSWORD を消して再起動(何も作らない・データ保持)・HEALTHCHECK healthy・node ユーザーで動作。確認後にコンテナとボリュームは削除
+- `pnpm audit --prod` … 既知の脆弱性なし
+- 説明書の点検: 15ファイルが UTF-8(BOM)・CRLF、見出しの形式、1行の長さ、Markdown 記法なし、説明書どうしの参照先が存在することを確認
+- サブエージェントによる説明書の作成時に、画面と説明の食い違いや不具合を洗い出して修正(DECISIONS.md D-034)
+- 未検証(RELEASE_CHECKLIST.md 4章): 実機の iPhone Safari / Android Chrome / iPad Safari、本番ホスティング(Render 等)での作成と HTTPS、SMTP の実送信、Turnstile の実キー、本番環境での性能
