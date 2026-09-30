@@ -10,7 +10,15 @@ import { loadSession, SESSION_COOKIE } from './auth/session.js';
 import { findAppRoot } from './db/migrate.js';
 import type { Deps } from './deps.js';
 import { AppError } from './errors.js';
+import { maskPii } from './logmask.js';
 import { registerRoutes } from './routes.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** 登録済みの API ルート一覧(権限・テナント分離の網羅テストで使う) */
+    routeList: { method: string; url: string }[];
+  }
+}
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -20,7 +28,8 @@ export function sanitizeUrl(url: string): string {
     .replace(/(\/manage\/)[^/?#]+/g, '$1***')
     .replace(/(\/invitations\/)[^/?#]+/g, '$1***')
     .replace(/(\/b\/)[^/?#]+/g, '$1***')
-    .replace(/([?&](token|t)=)[^&#]+/g, '$1***');
+    // 秘密のトークンと、検索語など個人情報になり得るクエリ値はログに残さない
+    .replace(/([?&](token|t|q|email|phone|name|tag)=)[^&#]+/g, '$1***');
 }
 
 function allowedOrigins(deps: Deps): Set<string> {
@@ -46,7 +55,40 @@ function originOk(req: FastifyRequest, origins: Set<string>): boolean {
   return true;
 }
 
-export async function buildApp(deps: Deps, opts: { serveStatic?: boolean; logger?: boolean } = {}): Promise<FastifyInstance> {
+/**
+ * エラーのログ出力: DB エラーの detail / where / 値などは行データ(個人情報)を含み得るため出さない。
+ * 種類・メッセージ・コード・制約名・スタックのみ。
+ */
+export function safeErrorForLog(err: unknown): Record<string, unknown> {
+  if (!err || typeof err !== 'object') return { message: String(err) };
+  const e = err as { name?: string; message?: string; code?: string; constraint?: string; table?: string; column?: string; stack?: string; statusCode?: number };
+  return {
+    type: e.name,
+    message: maskPii(e.message),
+    code: e.code,
+    constraint: e.constraint,
+    table: e.table,
+    column: e.column,
+    statusCode: e.statusCode,
+    stack: e.stack,
+  };
+}
+
+function containsNul(v: unknown, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (typeof v === 'string') return v.includes('\u0000');
+  if (Array.isArray(v)) return v.some((x) => containsNul(x, depth + 1));
+  const proto = v && typeof v === 'object' ? Object.getPrototypeOf(v) : undefined;
+  if (v && typeof v === 'object' && (proto === Object.prototype || proto === null)) {
+    return Object.entries(v as Record<string, unknown>).some(([k, x]) => k.includes('\u0000') || containsNul(x, depth + 1));
+  }
+  return false;
+}
+
+export async function buildApp(
+  deps: Deps,
+  opts: { serveStatic?: boolean; logger?: boolean; logStream?: NodeJS.WritableStream } = {},
+): Promise<FastifyInstance> {
   const { config } = deps;
   const app = Fastify({
     logger:
@@ -67,7 +109,9 @@ export async function buildApp(deps: Deps, opts: { serveStatic?: boolean; logger
               req(req: FastifyRequest) {
                 return { method: req.method, url: sanitizeUrl(req.url), id: req.id };
               },
+              err: (e) => safeErrorForLog(e) as { type: string; message: string; stack: string },
             },
+            ...(opts.logStream ? { stream: opts.logStream } : {}),
           },
     trustProxy: config.TRUST_PROXY,
     bodyLimit: 1024 * 1024,
@@ -122,6 +166,14 @@ export async function buildApp(deps: Deps, opts: { serveStatic?: boolean; logger
     }
   });
 
+  // NUL 文字は PostgreSQL の text に保存できず、比較でもエラーになるため入口で拒否する
+  app.addHook('preValidation', async (req) => {
+    if (!req.url.startsWith('/api/')) return;
+    if (containsNul(req.params) || containsNul(req.query) || containsNul(req.body)) {
+      throw new AppError('VALIDATION_ERROR', '使用できない文字(制御文字)が含まれています');
+    }
+  });
+
   app.addHook('onSend', async (req, reply, payload) => {
     if (req.url.startsWith('/api/')) {
       reply.header('Cache-Control', 'no-store');
@@ -164,6 +216,13 @@ export async function buildApp(deps: Deps, opts: { serveStatic?: boolean; logger
     return { ok: db, db, time: deps.clock.now().toISOString() };
   });
 
+  const routeList: { method: string; url: string }[] = [];
+  app.decorate('routeList', routeList);
+  app.addHook('onRoute', (r) => {
+    for (const m of Array.isArray(r.method) ? r.method : [r.method]) {
+      if (m !== 'HEAD') routeList.push({ method: m, url: r.url });
+    }
+  });
   await registerRoutes(app, deps);
 
   const staticDir = config.STATIC_DIR ?? path.join(findAppRoot(), 'dist', 'web');

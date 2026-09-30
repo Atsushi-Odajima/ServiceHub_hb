@@ -330,6 +330,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
   };
 
   app.post('/api/v1/passes/:id/adjust', async (req) => {
+    requireAuth(req, 'pass.adjust'); // 本文の検査より先に認証・権限を確認
     const b = parse(
       z.object({ type: z.enum(['manual_add', 'manual_subtract', 'correction']), delta: z.number().int().min(-1000).max(1000), reason: z.string().trim().min(1, '理由を入力してください').max(500), idempotencyKey: zIdempotencyKey }),
       req.body,
@@ -341,6 +342,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
   });
 
   app.post('/api/v1/passes/:id/expiry', async (req) => {
+    requireAuth(req, 'pass.adjust'); // 本文の検査より先に認証・権限を確認
     const b = parse(z.object({ expiresOn: zDate.nullable(), reactivate: z.boolean().default(false) }), req.body);
     return passAction(req, async (q, ctx, id) => {
       await changePassExpiry(q, ctx.orgId, actorOf(ctx), { passId: id, expiresOn: b.expiresOn, reactivate: b.reactivate, requestId: req.id });
@@ -349,6 +351,7 @@ export async function registerEntitlementRoutes(app: FastifyInstance, deps: Deps
   });
 
   app.post('/api/v1/passes/:id/void', async (req) => {
+    requireAuth(req, 'pass.adjust'); // 本文の検査より先に認証・権限を確認
     const b = parse(z.object({ reason: z.string().trim().min(1).max(500) }), req.body);
     return passAction(req, async (q, ctx, id) => {
       await voidPass(q, ctx.orgId, actorOf(ctx), { passId: id, reason: b.reason, requestId: req.id });

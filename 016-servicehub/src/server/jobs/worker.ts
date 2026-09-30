@@ -2,6 +2,7 @@ import { parseOrgSettings } from '../../shared/constants.js';
 import { withSystem, withSystemForOrg } from '../db/tx.js';
 import type { Deps } from '../deps.js';
 import { renderNotification, type NotificationRow } from '../notifications/render.js';
+import { maskPii } from '../logmask.js';
 
 const LEASE_MS = 2 * 60_000;
 
@@ -96,7 +97,7 @@ export async function processDueNotifications(deps: Deps, limit = 20): Promise<W
         );
         res.retried++;
       }
-      deps.log.warn({ notificationId: n.id, type: n.type, err: message }, 'notification send failed');
+      deps.log.warn({ notificationId: n.id, type: n.type, err: maskPii(message) }, 'notification send failed');
     }
   }
   return res;

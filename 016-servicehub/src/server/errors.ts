@@ -70,6 +70,9 @@ export function mapPgError(err: unknown): unknown {
     case '40001':
     case '40P01':
       return new AppError('CONFLICT', '同時に操作が行われました。もう一度お試しください。');
+    case '22P05': // untranslatable_character
+    case '22021': // character_not_in_repertoire
+      return new AppError('VALIDATION_ERROR', '使用できない文字が含まれています');
     case '55P03':
       return new AppError('SERVICE_UNAVAILABLE', '処理が混み合っています。少し待ってからもう一度お試しください。');
     case '57014':

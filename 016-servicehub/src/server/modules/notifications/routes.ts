@@ -5,7 +5,6 @@ import { actorOf, writeAudit } from '../../audit.js';
 import { locationScope, requireAuth } from '../../auth/context.js';
 import { withTenant } from '../../db/tx.js';
 import type { Deps } from '../../deps.js';
-import { LogMailer } from '../../email/mailer.js';
 import { invalidState, notFound } from '../../errors.js';
 import { parse, zIso, zUuid } from '../../http/validate.js';
 
@@ -99,9 +98,4 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Dep
     });
   });
 
-  // 開発/テスト専用: log プロバイダが記録したメール(本番では無効)
-  if (!deps.config.isProduction && deps.mailer instanceof LogMailer) {
-    const mailer = deps.mailer;
-    app.get('/api/v1/dev/mails', async () => ({ items: mailer.sent.slice(-50).reverse() }));
-  }
 }
