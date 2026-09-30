@@ -7,6 +7,8 @@ import { DashboardPage } from './pages/DashboardPage';
 import { AccountPage, OrgSettingsPage, SettingsHome } from './pages/settings/OrgAndAccount';
 import { LocationEditPage, LocationsPage } from './pages/settings/LocationsPages';
 import { MembersPage } from './pages/settings/MembersPage';
+import { ResourcesPage, ServiceEditPage, ServicesPage, StaffPage } from './pages/settings/CatalogPages';
+import { ShiftsPage } from './pages/ShiftsPage';
 
 const NotFound = () => (
   <div className="content">
@@ -40,6 +42,11 @@ export function App() {
           <Route path="settings/locations" element={<LocationsPage />} />
           <Route path="settings/locations/:id" element={<LocationEditPage />} />
           <Route path="settings/members" element={<MembersPage />} />
+          <Route path="settings/services" element={<ServicesPage />} />
+          <Route path="settings/services/:id" element={<ServiceEditPage />} />
+          <Route path="settings/staff" element={<StaffPage />} />
+          <Route path="settings/resources" element={<ResourcesPage />} />
+          <Route path="shifts" element={<ShiftsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>
         <Route path="*" element={<NotFound />} />
