@@ -9,7 +9,11 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   DATABASE_SSL: z.enum(['disable', 'require', 'no-verify']).default('disable'),
-  APP_BASE_URL: z.string().url().default('http://localhost:3000'),
+  APP_BASE_URL: z
+    .string()
+    .url()
+    .default('http://localhost:3000')
+    .transform((u) => u.replace(/\/+$/, '')),
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
   COOKIE_SECURE: z.enum(['auto', 'true', 'false']).default('auto'),
   TRUST_PROXY: bool.default(false),
@@ -38,8 +42,21 @@ export type AppConfig = z.infer<typeof EnvSchema> & {
   cookieSecure: boolean;
 };
 
+/** 空文字の環境変数は「未設定」として扱う(docker compose の `${X:-}` やホスティング画面の空欄で起動できなくならないように) */
+function withoutEmpty(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && v.trim() !== '') out[k] = v;
+  return out;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = EnvSchema.safeParse(env);
+  const src = withoutEmpty(env);
+  // Render では公開URLが RENDER_EXTERNAL_URL に入る。APP_BASE_URL を省略したときはそれを使う
+  if (!src.APP_BASE_URL && src.RENDER_EXTERNAL_URL) src.APP_BASE_URL = src.RENDER_EXTERNAL_URL;
+  if (src.NODE_ENV === 'production' && !src.APP_BASE_URL) {
+    throw new Error('APP_BASE_URL (公開するURL。例 https://reserve.example.com) is required in production');
+  }
+  const parsed = EnvSchema.safeParse(src);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);

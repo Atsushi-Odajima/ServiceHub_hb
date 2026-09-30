@@ -30,6 +30,28 @@ export interface SampleIds {
   users: { role: string; email: string }[];
 }
 
+/**
+ * サンプル組織を削除する(is_sample = true の組織だけ)。サンプル専用のログインユーザー(@sample-wellness.example で、
+ * ほかの組織に所属していないもの)も削除する。サンプルのパスワードは説明書で公開されているため、本番で使い始める前に消せるようにする。
+ */
+export async function deleteSampleOrganization(pool: pg.Pool): Promise<{ deleted: boolean; users: number }> {
+  return withSystem(pool, async (q) => {
+    const org = await q.maybeOne<{ id: string }>('SELECT id FROM organizations WHERE slug = $1 AND is_sample = true', [SAMPLE_SLUG]);
+    if (org) {
+      await q.exec(`SELECT set_config('app.allow_ledger_purge', 'on', true)`);
+      await q.exec('DELETE FROM organizations WHERE id = $1 AND is_sample = true', [org.id]);
+    }
+    const users = await q.many<{ id: string }>(
+      `DELETE FROM users u
+        WHERE u.email_normalized LIKE '%@sample-wellness.example'
+          AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM invitations i WHERE i.accepted_user_id = u.id)
+        RETURNING u.id`,
+    );
+    return { deleted: Boolean(org), users: users.length };
+  });
+}
+
 export async function seedSampleOrganization(pool: pg.Pool, opts: { appBaseUrl: string; sessionSecret: string; now?: Date }): Promise<SampleIds> {
   const now = opts.now ?? new Date();
   const clock = opts.now ? { now: () => opts.now! } : systemClock;

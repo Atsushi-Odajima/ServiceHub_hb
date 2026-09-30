@@ -1,0 +1,57 @@
+# ServiceHub を1台のサーバーで動かす例(アプリ + PostgreSQL)。
+#   1. deploy/docker.env.example を .env にコピーして値を設定(パスワード・SESSION_SECRET・APP_BASE_URL)
+#   2. docker compose up -d --build
+#   3. ブラウザで APP_BASE_URL を開き、SETUP_OWNER_EMAIL / SETUP_OWNER_PASSWORD でログイン
+#      (ログインできたら .env から SETUP_OWNER_PASSWORD を消して docker compose up -d)
+# 本番では HTTPS の終端(リバースプロキシ等)を前に置くこと。詳しくは docs/OPERATIONS.md。
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD を .env に設定してください}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD を .env に設定してください}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-app-db.sh:/docker-entrypoint-initdb.d/10-init-app-db.sh:ro
+    healthcheck:
+      # -h 127.0.0.1: 初期化中(一時サーバーはTCPで待ち受けない)は「準備中」と判定させる
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d servicehub']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://servicehub:${APP_DB_PASSWORD}@db:5432/servicehub
+      DATABASE_SSL: disable
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL(公開するURL)を .env に設定してください}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET(32文字以上のランダム文字列)を .env に設定してください}
+      MIGRATE_ON_START: 'true'
+      RUN_WORKER: 'true'
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
+      EMAIL_FROM: ${EMAIL_FROM:-ServiceHub <no-reply@example.invalid>}
+      SMTP_URL: ${SMTP_URL:-}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      SETUP_ORG_SLUG: ${SETUP_ORG_SLUG:-}
+      SETUP_ORG_NAME: ${SETUP_ORG_NAME:-}
+      SETUP_OWNER_EMAIL: ${SETUP_OWNER_EMAIL:-}
+      SETUP_OWNER_PASSWORD: ${SETUP_OWNER_PASSWORD:-}
+      SETUP_OWNER_NAME: ${SETUP_OWNER_NAME:-}
+      SETUP_LOCATION_NAME: ${SETUP_LOCATION_NAME:-}
+      SEED_SAMPLE_ON_START: ${SEED_SAMPLE_ON_START:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+volumes:
+  db-data:

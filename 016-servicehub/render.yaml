@@ -1,0 +1,61 @@
+# Render Blueprint(Render の画面で「New > Blueprint」からこのリポジトリを選ぶと、Web サービスと PostgreSQL を作成する)
+# - プラン名・リージョンは例。料金は Render の公式ページで確認して選ぶ(OPERATING_COSTS.md)。無料プランは一定時間で停止・期限があり業務利用には向かない
+# - 作成時に sync: false の値(APP_BASE_URL・初回のオーナーなど)を入力する。手順は docs/OPERATIONS.md「1.1 Render(Blueprint)」
+# - Render の PostgreSQL の既定ユーザーは superuser ではないため、組織間のデータ分離(RLS)がそのまま有効になる
+databases:
+  - name: servicehub-db
+    databaseName: servicehub
+    user: servicehub
+    plan: basic-256mb
+    region: singapore
+    postgresMajorVersion: '16'
+
+services:
+  - type: web
+    name: servicehub
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: servicehub-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: disable
+      - key: SESSION_SECRET
+        generateValue: true
+      # 空欄なら Render の公開URL(RENDER_EXTERNAL_URL)を使う。独自ドメインにしたらそのURLを設定
+      - key: APP_BASE_URL
+        sync: false
+      - key: MIGRATE_ON_START
+        value: 'true'
+      - key: RUN_WORKER
+        value: 'true'
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: EMAIL_PROVIDER
+        value: log
+      - key: EMAIL_FROM
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false
+      - key: SETUP_ORG_SLUG
+        sync: false
+      - key: SETUP_ORG_NAME
+        sync: false
+      - key: SETUP_OWNER_EMAIL
+        sync: false
+      - key: SETUP_OWNER_PASSWORD
+        sync: false
+      - key: SETUP_LOCATION_NAME
+        sync: false
+      # サンプル組織のログイン情報は説明書で公開されているため、本番では false のまま
+      - key: SEED_SAMPLE_ON_START
+        value: 'false'

@@ -1,13 +1,14 @@
 /**
  * サンプル組織「Sample Wellness」を作成する(is_sample = true。メールは送信されない)。
- *   pnpm db:seed:sample            … 既に存在すれば何もしない
- *   pnpm db:seed:sample -- --reset … サンプル組織を削除して作り直す(サンプル組織以外には触れない)
+ *   pnpm db:seed:sample             … 既に存在すれば何もしない
+ *   pnpm db:seed:sample -- --reset  … サンプル組織を削除して作り直す(サンプル組織以外には触れない)
+ *   pnpm db:seed:sample -- --delete … サンプル組織とサンプル専用のログインユーザーを削除する(本番で使い始める前に)
  * 本番の組織は setup-org で別に作成する(サンプルと本番は分離)。
  */
 import { hasFlag, loadConfigForCli } from './cli-config.js';
 import { createPool } from '../db/pool.js';
 import { withSystem } from '../db/tx.js';
-import { seedSampleOrganization, SAMPLE_PASSWORD, SAMPLE_SLUG } from '../sample/seed.js';
+import { deleteSampleOrganization, seedSampleOrganization, SAMPLE_PASSWORD, SAMPLE_SLUG } from '../sample/seed.js';
 
 const config = loadConfigForCli();
 const pool = createPool({ connectionString: config.DATABASE_URL, ssl: config.DATABASE_SSL, max: 4, applicationName: 'servicehub-seed' });
@@ -16,6 +17,11 @@ try {
   if (existing && !existing.is_sample) {
     console.error(`slug "${SAMPLE_SLUG}" is used by a non-sample organization. Aborting.`);
     process.exitCode = 1;
+  } else if (hasFlag('delete')) {
+    const r = await deleteSampleOrganization(pool);
+    console.info(r.deleted ? 'sample organization deleted' : 'sample organization does not exist');
+    if (r.users > 0) console.info(`sample login users deleted: ${r.users}`);
+    if (process.env.SEED_SAMPLE_ON_START === 'true') console.warn('SEED_SAMPLE_ON_START=true のままだと次の起動で再び作られます。false にしてください。');
   } else {
     if (existing && hasFlag('reset')) {
       await withSystem(pool, async (q) => {

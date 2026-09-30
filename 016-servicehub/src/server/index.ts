@@ -6,6 +6,7 @@ import { systemClock } from './deps.js';
 import { createMailer } from './email/mailer.js';
 import { startBackgroundJobs } from './jobs/runner.js';
 import { RealtimeHub } from './realtime/hub.js';
+import { bootstrapFromEnv } from './setup.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -28,6 +29,8 @@ async function main(): Promise<void> {
     const r = await migrate(pool, config.MIGRATIONS_DIR);
     if (r.applied.length) console.info(`[db] applied migrations: ${r.applied.join(', ')}`);
   }
+  // 初回セットアップ(SETUP_* の環境変数がある場合のみ)・サンプル組織(SEED_SAMPLE_ON_START=true)
+  await bootstrapFromEnv(pool, { appBaseUrl: config.APP_BASE_URL, sessionSecret: config.SESSION_SECRET, log: console });
   const mailer = createMailer(config);
   const realtime = new RealtimeHub(
     config.DATABASE_URL,

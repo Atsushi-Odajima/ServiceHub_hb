@@ -2,7 +2,6 @@
 
 ServiceHub を運用する人(購入者の管理担当・導入を手伝う人)向けの手順書。
 画面での操作は購入者向け説明書(`manual/バックアップと復元.txt` など)にも書いてある。ここではサーバー側の作業を含めて説明する。
-デプロイ(Render / Docker)の具体的な手順は Phase 10 で本書の「1. 構成とデプロイ」に追記する。
 
 ---
 
@@ -11,16 +10,54 @@ ServiceHub を運用する人(購入者の管理担当・導入を手伝う人)�
 - 構成: Web サーバー(Node.js 22、1プロセス)+ PostgreSQL 16。通知の送信と日次処理(回数券の失効・利用プランの期間締め・待機の期限など)は既定で Web と同じプロセスで動く(`RUN_WORKER=true`)。
 - 別プロセスにする場合: Web は `RUN_WORKER=false`、ワーカーは `node dist/server/worker.js`(`pnpm start:worker`)。
 - DB の接続ロールは **superuser / BYPASSRLS を持たない**こと(組織間のデータ分離を DB でも強制するため。起動時に検査し、本番では拒否)。
-- 具体的な手順(Render Blueprint / Docker Compose)は Phase 10 で追記。
+- 必要なもの: Node.js 22 が動く環境(または Docker)と PostgreSQL 16。**購入者のパソコンに開発環境は不要**(ホスティングの画面操作だけで始められる)。
+- 公開は必ず HTTPS で行う(Render は自動。Docker の場合はリバースプロキシ等で HTTPS を終端し `TRUST_PROXY=true`)。
 
-### 1.1 環境変数
+### 1.0 最初の組織とオーナーの作り方(3通り)
+1. **環境変数(シェル不要・推奨)**: 初回起動時に `SETUP_ORG_SLUG` / `SETUP_ORG_NAME` / `SETUP_OWNER_EMAIL` / `SETUP_OWNER_PASSWORD`(10文字以上)[/ `SETUP_OWNER_NAME` / `SETUP_LOCATION_NAME` / `SETUP_TIMEZONE`] を設定しておくと、本番の組織が1つもない場合だけ組織・最初の拠点・オーナーを作る。ログインを確認したら **`SETUP_OWNER_PASSWORD` を環境変数から削除**する(2回目以降の起動では何もしないが、パスワードを残さないため)。パスワードはログに出さない。
+2. **コマンド**: `node dist/server/cli/setup-org.js --slug <URL名> --name <組織名> --owner-email <メール> [--password <10文字以上>] [--location-name 本店]`(パスワードを省略すると生成して1回だけ表示)。
+3. **バックアップから**: 別の環境のバックアップファイルから復元する(6.3)。
+- 試用のサンプル組織(Sample Wellness)は `SEED_SAMPLE_ON_START=true` で作られる(メールは送信されない。本番の組織とは分離)。
+  - **サンプルのログイン情報は説明書で公開されている**ため、実際の顧客が使う環境では作らない(試用用の環境でだけ true にする)。
+  - 作った場合は、本番で使い始める前に `SEED_SAMPLE_ON_START` を false にしてから `node dist/server/cli/seed-sample.js --delete` を実行する(サンプル組織とサンプル専用のログインを削除。本番の組織には触れない)。
+
+### 1.1 Render(Blueprint)
+リポジトリの `render.yaml` に Web サービス(Docker)と PostgreSQL の定義がある。
+1. Render にログインし、「New」→「Blueprint」でこのリポジトリを選ぶ。
+2. 入力を求められる値を設定する:
+   - `APP_BASE_URL`: 公開URL。**空欄でよい**(Render の公開URL `https://servicehub-xxxx.onrender.com` を自動で使う)。独自ドメインにしたらそのURLを設定する
+   - `SETUP_ORG_SLUG` / `SETUP_ORG_NAME` / `SETUP_OWNER_EMAIL` / `SETUP_OWNER_PASSWORD` / `SETUP_LOCATION_NAME`: 1.0 の 1
+   - `EMAIL_FROM` / `SMTP_URL`: メールを実際に送る場合(送らない間は空で可。`EMAIL_PROVIDER` を `smtp` に変える)
+   - `BACKUP_ENCRYPTION_KEY`: 任意(3.4)
+   - `SESSION_SECRET` は自動生成される。**値を控えて安全な場所に保管**する(引っ越し時に同じ値を使う)
+3. プラン・リージョン(既定: Web `starter` / DB `basic-256mb` / `singapore`)は料金を公式ページで確認して選ぶ(OPERATING_COSTS.md)。
+4. 作成後、デプロイが終わったら `APP_BASE_URL` を開いてオーナーでログインする。確認できたら Render の Environment 画面で `SETUP_OWNER_PASSWORD` を削除して保存(再デプロイされる)。
+5. 独自ドメイン: Render の Custom Domains で設定し、`APP_BASE_URL` をそのURLに変更する。
+- DB 構造は起動時に自動で更新される(`MIGRATE_ON_START=true`)。複数インスタンスでも同時に適用しないよう排他している。
+- Render の PostgreSQL の既定ユーザーは superuser ではないため、RLS による分離がそのまま有効(起動時に検査)。
+- DB のバックアップはプランの自動バックアップに加え、組織バックアップ(3章)を併用する。
+
+### 1.2 Docker Compose(自社サーバー・VPS)
+1. サーバーに Docker と Docker Compose を用意し、このリポジトリ(またはリリースの圧縮ファイル)を置く。
+2. `deploy/docker.env.example` を `.env` にコピーし、パスワード類・`SESSION_SECRET`・`APP_BASE_URL`・`SETUP_*` を設定する。
+3. `docker compose up -d --build` を実行する。PostgreSQL の初回起動時に、アプリ用の一般ロール(superuser でない)とデータベースが作られる(`deploy/postgres/init-app-db.sh`)。
+4. `APP_BASE_URL` を開いてログインし、`.env` から `SETUP_OWNER_PASSWORD` を消して `docker compose up -d`。
+5. HTTPS: 前段にリバースプロキシ(例: Caddy / nginx)を置いて HTTPS を終端し、`TRUST_PROXY=true` にする。
+- 更新: 新しい版を置いて `docker compose up -d --build`(DB 構造は起動時に更新)。
+- DB のバックアップ: 組織バックアップ(3章)に加え、`docker compose exec db pg_dump -U postgres servicehub > backup.sql` などで DB 全体も保存する。
+- イメージ単体: `docker build -t servicehub .` → 環境変数を渡して `docker run -p 3000:3000 ... servicehub`。
+
+### 1.3 その他の Node.js ホスティング
+`pnpm install --frozen-lockfile && pnpm build` でビルドし、`node dist/server/index.js` で起動する(本番に必要な依存パッケージは `dependencies` の8つのみ)。環境変数は 1.4 のとおり。
+
+### 1.4 環境変数
 
 | 変数 | 必須 | 説明 |
 |---|---|---|
 | `DATABASE_URL` | ○ | PostgreSQL の接続文字列 |
 | `DATABASE_SSL` | | `disable` / `require` / `no-verify`(ホスティングの指示に従う) |
 | `SESSION_SECRET` | ○ | 32文字以上のランダム文字列。**予約管理リンクの生成にも使う。環境を移すときは同じ値を使う**(9.3 参照) |
-| `APP_BASE_URL` | ○ | 公開URL(例 `https://reserve.example.com`)。メールのリンクと送信元チェック(CSRF)に使う |
+| `APP_BASE_URL` | ○ | 公開URL(例 `https://reserve.example.com`)。メールのリンクと送信元チェック(CSRF)に使う。Render では省略時に `RENDER_EXTERNAL_URL` を使う。本番で分からなければ起動しない |
 | `NODE_ENV` | ○ | 本番は `production` |
 | `EMAIL_PROVIDER` / `SMTP_URL` / `EMAIL_FROM` | | 既定 `log`(送信しない)。実送信は `smtp` と SMTP_URL |
 | `BACKUP_ENCRYPTION_KEY` | | 設定するとバックアップファイルを AES-256-GCM で暗号化(16文字以上)。**キーを失うと復元できない** |
@@ -30,16 +67,19 @@ ServiceHub を運用する人(購入者の管理担当・導入を手伝う人)�
 | `TRUST_PROXY` | | ホスティングのロードバランサ配下では `true`(IP 単位の回数制限を正しく行うため) |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | | 公開予約の bot 対策(任意) |
 | `LOG_LEVEL` | | 既定 `info`。ログには個人情報(メール・電話・氏名・検索語・トークン)を出さない |
+| `SETUP_ORG_SLUG` ほか `SETUP_*` | | 初回セットアップ(1.0)。組織が1つもないときだけ使われる。**作成後は `SETUP_OWNER_PASSWORD` を削除** |
+| `SEED_SAMPLE_ON_START` | | `true` でサンプル組織を作る(無ければ)。**試用環境だけ**で使う(1.0) |
 
 秘密情報(`DATABASE_URL`, `SESSION_SECRET`, `SMTP_URL`, `BACKUP_ENCRYPTION_KEY`, `TURNSTILE_SECRET_KEY`)はホスティングの環境変数/Secret 機能に保存し、リポジトリやチャットに貼らない。
+空欄(空文字)の変数は未設定として扱う(既定値が使われる)。
 
-### 1.2 コマンド一覧(本番=ビルド済み / 開発=pnpm)
+### 1.5 コマンド一覧(本番=ビルド済み / 開発=pnpm)
 
 | 作業 | 本番(Render の Shell / Docker の exec) | 開発 |
 |---|---|---|
 | DB構造の作成・更新 | `node dist/server/cli/migrate.js` | `pnpm db:migrate` |
 | 本番組織と最初のオーナーを作る | `node dist/server/cli/setup-org.js --slug <URL名> --name <名称> --owner-email <メール>` | `pnpm setup:org -- ...` |
-| サンプル組織 | `node dist/server/cli/seed-sample.js [--reset]` | `pnpm db:seed:sample -- --reset` |
+| サンプル組織(作成 / 作り直し / 削除) | `node dist/server/cli/seed-sample.js [--reset \| --delete]` | `pnpm db:seed:sample -- --reset` |
 | バックアップ作成 | `node dist/server/cli/backup.js create --org <URL名>` | `pnpm backup:create -- --org <URL名>` |
 | バックアップ検証 | `node dist/server/cli/backup.js verify --file <ファイル>` | `pnpm backup:verify -- --file ...` |
 | 復元 | `node dist/server/cli/backup.js restore --file <ファイル> [...]` | `pnpm backup:restore -- ...` |
