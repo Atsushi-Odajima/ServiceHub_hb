@@ -77,3 +77,10 @@ canceled_* / no_show ─(復元: 枠を再確保できた場合のみ, Owner/Man
 - 占有: (org, staff, block_starts_at) WHERE active / (org, location, starts_at) WHERE active
 - 顧客検索: (org, name_norm) / (org, kana_norm) / (org, email_normalized) / (org, phone_normalized) / (org, phone_reversed) … すべて COLLATE "C" で前方一致レンジ検索
 - 通知: (next_attempt_at) WHERE pending/sending
+- 外部キーの参照側(移行 0004): 親の削除時(置換復元・サンプル再作成)の参照確認が全件走査にならないよう、bookings(previous_booking_id / waitlist_entry_id)、service_records(booking_id / next_booking_id)、台帳(service_record_id / booking_id / customer_plan_period_id)、waitlist_entries(booked_booking_id)、customers(merged_into_id)、customer_merges に索引。
+
+## 6. バックアップと復元に関する列・関数
+- `set_updated_at()` は `app.restoring = on` の間は updated_at を変更しない(復元で循環参照を後から更新するため。移行 0004)。
+- `forbid_update_delete()`(台帳・監査の追記専用)は `app.allow_ledger_purge = on` の間だけ DELETE を許可(置換復元・サンプル再作成・組織削除のトランザクション内のみ)。
+- `customer_passes.remaining` / `customer_plan_periods.remaining` は INSERT 時 0 必須(ガード)。復元でも 0 で投入し、台帳の再生で再計算して照合する。
+- 対象表・除外表・復元順序は `src/server/backup/spec.ts`。新しい表を追加したら、バックアップ対象か除外(理由付き)のどちらかに加える(テストで検査)。

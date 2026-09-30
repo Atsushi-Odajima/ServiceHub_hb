@@ -44,6 +44,17 @@ export function localToUtc(date: string, time: string, zone: string): Date | nul
   return dt.toJSDate();
 }
 
+/**
+ * その日の中で UTC との時差が変わらない場合の時差(分)。夏時間の切り替えがある日は null。
+ * (切り替えは1日に高々1回のため、0:00 と 23:59 の時差が同じなら日中に切り替えはない)
+ */
+export function constantOffsetOfDay(date: string, zone: string): number | null {
+  const start = DateTime.fromISO(`${date}T00:00`, { zone });
+  const end = DateTime.fromISO(`${date}T23:59`, { zone });
+  if (!start.isValid || !end.isValid) return null;
+  return start.offset === end.offset ? start.offset : null;
+}
+
 /** 必ず Date を返す版(存在しない時刻は Luxon の既定=後ろへずらす) */
 export function localToUtcLenient(date: string, time: string, zone: string): Date {
   const { h, m } = parseTime(time);

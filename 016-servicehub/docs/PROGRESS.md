@@ -1,6 +1,6 @@
 # 進捗 (PROGRESS.md)
 
-最終更新: 2026-09-30(Phase 8 まで)
+最終更新: 2026-09-30(Phase 9 まで)
 
 ## Phase 状態
 | Phase | 状態 | メモ |
@@ -14,7 +14,7 @@
 | 6 期間利用プラン | 完了 | 種類/契約/期間の遅延生成+付与/消化/取消/調整/終了・解約/期間締め(繰越ON/OFF)/期限通知 |
 | 7 待機/定員/ロール別画面 | 完了 | 待機リスト(登録・候補抽出・運営者の案内・先着順の再判定・予約で自動クローズ・期限切れ)、公開のキャンセル待ち登録、クラスの定員表示、ロール別ダッシュボード |
 | 8 KPI/検索/CSV/監査 | 完了 | 運営KPI(期間・分母明示、欠損は—、拠点別合計=全体、稼働率)、横断検索、CSV出力7種(BOM・数式対策・カーソル分割)、CSV取込3種(プレビュー→検証→反映・二重取込防止)、監査ログ画面、画面単位の権限表示 |
-| 9 バックアップ/セキュリティ/負荷・競合 | 未着手 | |
+| 9 バックアップ/セキュリティ/負荷・競合 | 完了 | 組織バックアップ(作成・検証・1トランザクション復元・台帳の再生照合・暗号化)画面とCLI、E2E-7、全APIのテナント分離/RBAC網羅/CSRF/XSS/ログ/レート制限テスト、競合の重点テスト、目標規模での負荷測定(LOAD_TEST_REPORT.md)、OPERATIONS.md |
 | 10 端末E2E/アクセシビリティ/説明書/デプロイ/販売前チェック | 未着手 | |
 
 ## Phase 0 記録
@@ -84,3 +84,15 @@
 - 監査ログ: /api/v1/audit(期間・種類・拠点で絞り込み、新しい順のカーソルページング。Manager は担当拠点の記録のみ)、画面 /app/audit(変更前後・詳細を表示)
 - 画面: 権限のない画面は RequirePerm で「表示できません」と案内(以前は一部で読み込み中のまま)。サーバー側の検査は従来どおり
 - テスト: tests/unit/kpi.test.ts(稼働率 3/7・勤務なし null・CSV の数式対策と往復)、tests/integration/kpi-search-csv-audit.test.ts(必須 #20、率の分子分母、稼働率、検索スコープ、CSV 出力/取込、監査ログ)、E2E-5(受付: 来店可・Owner設定/KPI不可 / スタッフ: 実施記録可・KPI不可)
+
+## Phase 9 記録
+- バックアップ: src/server/backup(spec / format / catalog / dump / verify / restore)、CLI src/server/cli/backup.ts、API modules/backup/routes.ts、画面 設定 > バックアップ(/app/settings/backup)
+  - 形式: gzip NDJSON(ヘッダー: 形式/DB構造の版/アプリの版/作成日時/組織、表ごとの件数と SHA-256、全体の SHA-256)。任意で AES-256-GCM(BACKUP_ENCRYPTION_KEY)
+  - 復元: new(空の環境)/ replace(置き換え)を1トランザクションで。RLS のテナント文脈で書き込み、別組織の行を含むファイルは拒否、既存ユーザーは上書きしない、循環参照は後から更新、台帳は元の順序で再生して DB のトリガーで残数を再計算 → 全エントリと残数を照合、全表を読み直して内容ハッシュを照合、未送信通知は skipped、dry run(復元テスト)
+  - 画面からの復元の安全策: 2時間以内の現在データのバックアップ・URL 名の入力・操作者がバックアップ内の有効な Owner・別組織は追加の確認。完了後は全員再ログイン
+  - 移行 0004: set_updated_at が app.restoring 中は更新しない、外部キーの参照側索引
+- セキュリティ: app.routeList(登録済みルート一覧)を使った全APIの網羅テスト、RBAC 表のテスト、CSRF/Cookie/ヘッダー、XSS(API と実ブラウザ)、ログの個人情報、レート制限。発見した問題(開発用メールAPI・NUL で 500・認証前の本文検査・ログの検索語/DB詳細)を修正
+- 競合: tests/integration/concurrency.test.ts(同一枠・別拠点同一スタッフ・同一リソース・定員・変更と新規・キャンセル直後・回数券/利用プランの同時消化・同一顧客/予約の同時更新)
+- 負荷: tests/load/generate.ts(scale で段階的に生成。scale=1 で目標規模・約16分)と run.ts(実サーバーを autocannon で測定)。空き枠計算の無駄を解消。結果は LOAD_TEST_REPORT.md(販売保証値ではない)
+- 並び順の安定化: 一覧の ORDER BY に ID を追加、array_agg に ORDER BY、顧客タイムラインのカーソルを「日時|行ID」に
+- 資料: OPERATIONS.md(環境変数・コマンド・アップデート・バックアップ・復元・障害対応・定期作業)、SECURITY.md、DECISIONS.md(D-028〜D-031)、DATA_MODEL.md、TEST_REPORT.md、LOAD_TEST_REPORT.md

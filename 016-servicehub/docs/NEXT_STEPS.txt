@@ -2,15 +2,19 @@ ServiceHub 次の作業 (セッション再開時はここと PROGRESS.md を最
 ======================================================================
 作業ディレクトリ: /home/user/hanbai16/016-servicehub  (ブランチ claude/016-servicehub)
 DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB servicehub_dev, servicehub_test
+    負荷試験用 servicehub_load(pnpm load:generate で作り直し。容量が大きいので不要なら DROP DATABASE)
 
-現在: Phase 9 (バックアップ/復元・セキュリティ・負荷/競合)
-1. 組織単位のバックアップ(CLI: pnpm backup:create / backup:verify / backup:restore、画面: 設定 > バックアップ で作成・検証・ダウンロード)
-   - 形式: JSON(gzip) + manifest(schemaVersion / appVersion / createdAt / 件数 / チェックサム)、任意で AES-256-GCM 暗号化(BACKUP_ENCRYPTION_KEY)
-   - 復元: 検証 → 空の組織(または別DB)へ1トランザクションで投入 → 件数・台帳残数の照合 → 失敗時は全て巻き戻し。必須 #19、E2E-7
-2. セキュリティ確認: テナント分離テスト一式(全APIを他組織IDで叩いて404/403)、RBAC 表の網羅テスト、CSRF/Origin、レート制限、XSS(出力エスケープ)、ログの個人情報、依存パッケージ監査
-3. 負荷データ生成(tests/load): 100組織/500拠点/5,000スタッフ/50万顧客/200万予約/200万台帳/500万通知 を段階的に生成し、
-   今日の画面・空き枠・顧客検索・予約一覧・KPI・権限チェックの応答時間を測定(販売保証値ではない)。同一枠高並行・回数券同時消化・同一顧客同時更新
-4. OPERATIONS.md(バックアップ・復元・障害時の手順)
+現在: Phase 10 (端末E2E・アクセシビリティ・購入者向け説明書・デプロイ・販売前チェック)
+1. 端末E2E: PC/iPhone/Android/iPad(Chromium の端末エミュレーション)で E2E-1〜7 と主要画面を通す(tests/e2e、pnpm test:e2e)。
+   実機 Safari/WebKit・実機 Android Chrome での確認は RELEASE_CHECKLIST.md の「人が行う確認」に列挙(この環境では不可)
+2. アクセシビリティ: 色だけで状態を示さない・label・キーボード操作・フォーカス表示・タップ領域(44px)・エラーの関連付け・受付モードの見やすさ。
+   Playwright で主要画面を axe 相当の観点(ラベル/ランドマーク/コントラストは目視)で点検し、問題を修正
+3. 購入者向け資料(manual/ に .txt): はじめに / 初期設定ガイド / 複数店舗の設定 / スタッフと権限 / 予約とシフト / 受付モード / 顧客管理 /
+   回数券の使い方 / 利用プランの使い方 / スマホ・iPadで使う / キャンセル・無断欠席 / バックアップと復元 / 注意事項 / サンプル組織説明 / THIRD_PARTY_NOTICES
+   (THIRD_PARTY_NOTICES は scripts/third-party-notices.mjs で本番依存のライセンスから生成: pnpm notices)
+4. デプロイ: Dockerfile / docker-compose.yml(app + postgres、非superuserロール作成)/ render.yaml(Render Blueprint)。
+   OPERATIONS.md 1章に手順を追記(本番公開・有料契約はしない。手順書と設定ファイルのみ)
+5. RELEASE_CHECKLIST.md(30の完成条件の対応表・人が行う確認)、TEST_REPORT.md、PROGRESS.md、最終報告
 サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
 開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)  / デモ組織 demo-salon: owner@demo.example / demo-owner-pass (開発DBのみ)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。

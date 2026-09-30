@@ -8,7 +8,11 @@
 - 複合外部キー `(organization_id, id)` で他組織の行を参照できない。
 - 他組織のIDを URL に指定しても 404(存在の有無を漏らさない)。
 - 起動時に接続ロールが superuser/BYPASSRLS でないことを検査。
-- テスト: `tests/integration/tenant-isolation.test.ts`。
+- テスト: `tests/integration/security.test.ts`
+  - 登録済みの**全APIルート**(`app.routeList`)を、他組織の Owner が組織AのIDを埋めて呼ぶ → 1件も成功せず、応答に組織Aのデータ(ID・氏名・電話)が含まれず、組織Aの全表の内容ハッシュが変わらない
+  - 一覧・検索・KPI・CSV出力・バックアップにも組織Aのデータが含まれない
+  - DB層: 全テナント表で、他組織の文脈から組織Aの行は0件、テナント文脈なしでは全表0件。他組織としての INSERT は RLS 違反、UPDATE は0件
+  - 接続ロールが superuser / BYPASSRLS でないこと
 
 ## 2. 認証・セッション
 - パスワード: scrypt(N=2^15,r=8,p=1)+ソルト。最小10文字。平文・ハッシュをログに出さない。
@@ -20,19 +24,22 @@
 - 招待/パスワード再設定トークン: 32byte 乱数、SHA-256 保存、1回限り、7日/1時間で失効。
 
 ## 3. CSRF / XSS / ヘッダー
-- 状態変更リクエスト(POST/PUT/PATCH/DELETE)は `X-CSRF-Token`(セッションごとの同期トークン)必須 + `Origin`/`Referer` が APP_BASE_URL と一致すること。
+- 状態変更リクエスト(POST/PUT/PATCH/DELETE)は `X-CSRF-Token`(セッションごとの同期トークン)必須 + `Origin`/`Referer` が APP_BASE_URL と一致すること。未ログインの状態変更も Origin/Referer を検査(公開予約を含む)。
 - 公開予約 API(ログイン不要)は Cookie 認証を使わないため CSRF 対象外。代わりにレート制限 + フォームトークン(HMAC 署名付き発行時刻)+ ハニーポット。
-- React の自動エスケープ。`dangerouslySetInnerHTML` 不使用。メール本文はプレーンテキスト。
+- React の自動エスケープ。`dangerouslySetInnerHTML`・`innerHTML`・`eval` 等を使わない(テストで静的に検査)。メール本文はプレーンテキスト。
+  スクリプトを含む顧客名・メモ・タグが画面で実行されないことを実ブラウザで確認(`tests/e2e/e2e-9-xss.spec.ts`)。
 - helmet: CSP `default-src 'self'`(インラインスクリプト不可), `frame-ancestors 'none'`, HSTS(HTTPS時), `X-Content-Type-Options`, `Referrer-Policy: strict-origin-when-cross-origin`。
 - CSV 出力は数式インジェクション対策(`= + - @ タブ CR` で始まるセルに `'` を前置)。
 
 ## 4. 入力検証・SQL
 - 全 API 入力は Zod スキーマで検証(型・長さ・列挙・UUID形式)。未知のキーは除去。
 - SQL は常に `$n` パラメータ。動的なソート列等はホワイトリスト。
-- リクエストボディ上限 1MB(CSV取込 5MB、バックアップ検証 50MB)。
+- リクエストボディ上限 1MB(CSV取込 10MB、バックアップの検証/復元はストリームで一時ファイルへ保存し `BACKUP_UPLOAD_MAX_MB`=既定200MB、展開後4GB まで)。
+- NUL 文字(`\u0000`)を含むクエリ・本文は入口で 400(PostgreSQL の text に保存できず 500 になるのを防ぐ)。
+- 認証・権限の確認は本文の検査より先に行う(未ログインは常に 401)。
 
 ## 5. 公開予約の保護
-- IP 単位レート制限(既定 30回/分、予約確定は 10回/10分)、管理トークン照合 20回/分。
+- IP 単位レート制限(閲覧 `PUBLIC_RATE_LIMIT_PER_MIN`×4 回/分、予約確定・キャンセル待ち登録 10回/10分、予約管理トークン照合 30回/分)。超過時は 429 と Retry-After。本文の検査より先に数える。
 - フォームトークン: 空き検索時に発行、確定時に「発行から3秒以上・2時間以内」を検証(bot の即時送信を抑止)。ハニーポット項目。
 - 任意: Cloudflare Turnstile(環境変数設定時のみ有効)。
 - 予約管理トークン(URL): 32byte 乱数、ハッシュ保存、予約終了+30日で失効。予約番号だけでは操作できない。
@@ -48,7 +55,11 @@
 - 監査ログは追記専用(UPDATE/DELETE 禁止トリガ)。
 
 ## 8. ログ
-- pino。`authorization`, `cookie`, `set-cookie`, `password`, `token`, `email`, `phone` 等を redact。リクエストログは URL のクエリ文字列からトークンを除去。
+- pino。`authorization`, `cookie`, `set-cookie`, `x-csrf-token` を redact。リクエスト本文はログに出さない。
+- リクエストログの URL: 予約管理/招待のトークン、`token`・`q`(検索語)・`email`・`phone`・`name`・`tag` の値を `***` に置き換える。
+- エラーログ: DB エラーの `detail`/`where`(行の値を含み得る)を出さず、種類・メッセージ・コード・制約名のみ。メッセージ中のメールアドレス・電話番号はマスク(`logmask.ts`)。
+- 通知の送信失敗ログ: 外部サービスのエラーメッセージ内の宛先をマスク。
+- テスト: ログイン・顧客登録・電話番号検索・予約管理リンク・ログイン失敗を実行し、ログにパスワード・メール・電話・氏名・トークン・Cookie・CSRF トークンが含まれないこと。
 - エラー応答にスタックトレースを出さない(本番)。
 
 ## 9. 秘密情報
@@ -60,5 +71,22 @@
 - 匿名化しても予約・台帳・実施記録・監査の件数と関係は保持(集計・残数の整合性を維持)。
 - 保存期間: `organizations.settings.retention`(将来設定用の構造。初版は手動匿名化のみ)。
 
-## 11. 既知の制限(販売前に人間確認)
-- 実機ブラウザでの Cookie/PWA 挙動、本番ドメインでの HTTPS/HSTS、SMTP 事業者の SPF/DKIM/DMARC 設定、ペネトレーションテストは未実施。
+## 11. バックアップのセキュリティ
+- 作成・検証・復元は Owner のみ(`backup.manage`)。作成・復元・復元テストは監査ログに記録。作成は組織ごとに1時間12回まで。
+- ファイルには個人情報とパスワードハッシュが含まれる。任意で AES-256-GCM 暗号化(`BACKUP_ENCRYPTION_KEY`、scrypt で鍵導出、認証タグで改ざん検出)。
+- 復元は RLS のテナント文脈で書き込み、全行の `organization_id` がヘッダーの組織と一致しないファイルは拒否(別組織のデータを混ぜた細工ファイル対策)。表・列は許可リスト(未知の表・列は拒否)。
+- 既存のログインユーザーは上書きしない(パスワード等を細工ファイルで書き換えられない)。画面からの復元では、置き換え前にこの組織のメンバーでなかった既存ユーザーの権限は「無効」で復元。
+- 画面からの復元: 2時間以内に現在のデータのバックアップがあること、組織の URL 名の入力、操作者がバックアップ内の有効なオーナーであること(締め出し防止)。
+- テスト: `tests/integration/backup-restore.test.ts`(改ざん・破損・途中切れ・別組織データ・暗号化・失敗時の巻き戻し)、`backup-api.test.ts`(権限・確認・上限)。
+
+## 12. 依存パッケージ
+- `pnpm audit --prod`: 既知の脆弱性なし(2026-09-30)。
+- 開発用のみ: `autocannon`(負荷試験ツール)経由の `uuid` に moderate の注意報(GHSA-w5hq-g745-h8pq、バッファを渡す v3/v5/v6 の境界検査)。本番の成果物には含まれず、負荷試験でも該当機能は使わない。
+- 3か月ごとに `pnpm audit` を確認(OPERATIONS.md 8章)。
+
+## 13. RBAC の網羅テスト
+- `tests/integration/rbac.test.ts`: ロール→権限の対応表をテストで固定し RBAC.md と照合、46 の代表 API × 4 ロールの許可/拒否(担当外の拠点・他スタッフの予約は 404)。
+- `security.test.ts`: 未ログインでは公開/認証以外の全 API が 401。
+
+## 14. 既知の制限(販売前に人間確認)
+- 実機ブラウザでの Cookie/PWA 挙動、本番ドメインでの HTTPS/HSTS、SMTP 事業者の SPF/DKIM/DMARC 設定、第三者によるペネトレーションテストは未実施。

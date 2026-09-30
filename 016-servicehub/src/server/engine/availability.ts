@@ -5,6 +5,7 @@
 import {
   addDays,
   addMinutes,
+  constantOffsetOfDay,
   isoWeekday,
   localDateOf,
   localTimeOf,
@@ -18,6 +19,7 @@ import type {
   EngineLocation,
   EngineOccupancy,
   EngineResource,
+  EngineShift,
   EngineStaff,
   EvaluateResult,
   Interval,
@@ -101,6 +103,128 @@ export function businessIntervals(loc: EngineLocation, date: string): Interval[]
   );
 }
 
+// ---- 計算結果の再利用(1回の空き枠計算の中で同じ値を何度も求めない) ----
+// 入力の配列・オブジェクトは差し替えのみで中身を書き換えないため、それ自体をキーにする(WeakMap で自動解放)
+const businessCache = new WeakMap<EngineLocation, Map<string, Interval[]>>();
+function businessIntervalsCached(loc: EngineLocation, date: string): Interval[] {
+  let byDate = businessCache.get(loc);
+  if (!byDate) {
+    byDate = new Map();
+    businessCache.set(loc, byDate);
+  }
+  let v = byDate.get(date);
+  if (!v) {
+    v = businessIntervals(loc, date);
+    byDate.set(date, v);
+  }
+  return v;
+}
+
+const workCache = new WeakMap<EngineShift[], Map<string, Interval[]>>();
+function workIntervals(input: EngineInput, staffId: string, locationId: string): Interval[] {
+  let byKey = workCache.get(input.shifts);
+  if (!byKey) {
+    byKey = new Map();
+    workCache.set(input.shifts, byKey);
+  }
+  const key = `${staffId}|${locationId}`;
+  let v = byKey.get(key);
+  if (!v) {
+    v = mergeIntervals(
+      input.shifts.filter((sh) => sh.staffId === staffId && sh.type === 'work' && sh.locationId === locationId).map((sh) => ({ start: sh.start, end: sh.end })),
+    );
+    byKey.set(key, v);
+  }
+  return v;
+}
+
+// 時点 → 拠点の日付(おまかせでは同じ枠をスタッフごとに再判定するため、同じ変換が繰り返される)
+const localDateCache = new WeakMap<EngineLocation, Map<number, string>>();
+function localDateAt(loc: EngineLocation, t: Date): string {
+  let byTime = localDateCache.get(loc);
+  if (!byTime) {
+    byTime = new Map();
+    localDateCache.set(loc, byTime);
+  }
+  const k = t.getTime();
+  let v = byTime.get(k);
+  if (v === undefined) {
+    v = localDateOf(t, loc.timezone);
+    byTime.set(k, v);
+  }
+  return v;
+}
+
+const todayCache = new WeakMap<EngineLocation, Map<number, string>>();
+function todayAt(loc: EngineLocation, now: Date): string {
+  let byNow = todayCache.get(loc);
+  if (!byNow) {
+    byNow = new Map();
+    todayCache.set(loc, byNow);
+  }
+  const k = now.getTime();
+  let v = byNow.get(k);
+  if (v === undefined) {
+    v = todayIn(loc.timezone, now);
+    byNow.set(k, v);
+  }
+  return v;
+}
+
+// スタッフごとの占有・シフト(判定のたびに全件を走査しない)
+const occByStaffCache = new WeakMap<EngineOccupancy[], Map<string, EngineOccupancy[]>>();
+function occupanciesOf(input: EngineInput, staffId: string): EngineOccupancy[] {
+  let m = occByStaffCache.get(input.occupancies);
+  if (!m) {
+    m = new Map();
+    for (const o of input.occupancies) {
+      if (!o.staffId) continue;
+      const list = m.get(o.staffId);
+      if (list) list.push(o);
+      else m.set(o.staffId, [o]);
+    }
+    occByStaffCache.set(input.occupancies, m);
+  }
+  return m.get(staffId) ?? [];
+}
+
+const shiftsByStaffCache = new WeakMap<EngineShift[], Map<string, EngineShift[]>>();
+function shiftsOf(input: EngineInput, staffId: string): EngineShift[] {
+  let m = shiftsByStaffCache.get(input.shifts);
+  if (!m) {
+    m = new Map();
+    for (const sh of input.shifts) {
+      const list = m.get(sh.staffId);
+      if (list) list.push(sh);
+      else m.set(sh.staffId, [sh]);
+    }
+    shiftsByStaffCache.set(input.shifts, m);
+  }
+  return m.get(staffId) ?? [];
+}
+
+const dayMinutesCache = new WeakMap<EngineOccupancy[], Map<string, Map<string, number>>>();
+/** スタッフごとの、その日(拠点の日付)の担当時間(分)。おまかせ割当の並べ替えで使う */
+function staffDayMinutes(input: EngineInput, staffId: string, date: string): number {
+  let byDate = dayMinutesCache.get(input.occupancies);
+  if (!byDate) {
+    byDate = new Map();
+    dayMinutesCache.set(input.occupancies, byDate);
+  }
+  const key = `${input.location.timezone}|${date}`;
+  let totals = byDate.get(key);
+  if (!totals) {
+    totals = new Map();
+    for (const o of input.occupancies) {
+      if (!o.staffId) continue;
+      if (localDateAt(input.location, o.start) !== date) continue;
+      totals.set(o.staffId, (totals.get(o.staffId) ?? 0) + (o.end.getTime() - o.start.getTime()) / 60000);
+    }
+    byDate.set(key, totals);
+  }
+  return totals.get(staffId) ?? 0;
+}
+
 /** 占有時間内のリソース同時使用数のピーク */
 export function peakUsage(occupancies: EngineOccupancy[], resourceId: string, B: Interval): number {
   const events: [number, number][] = [];
@@ -166,7 +290,7 @@ export function allocateResources(input: EngineInput, B: Interval): { ok: boolea
 /** 候補開始時刻(営業区間内に収まるもの) */
 export function candidateStarts(input: EngineInput, date: string): Date[] {
   const { location: loc, service: svc } = input;
-  const intervals = businessIntervals(loc, date);
+  const intervals = businessIntervalsCached(loc, date);
   if (intervals.length === 0) return [];
   const fits = (t: Date) => intervals.some((iv) => contains(iv, { start: t, end: addMinutes(t, svc.durationMin) }));
   if (svc.scheduleMode === 'fixed') {
@@ -179,8 +303,11 @@ export function candidateStarts(input: EngineInput, date: string): Date[] {
   }
   const step = svc.slotIntervalMin ?? loc.slotIntervalMin;
   const out: Date[] = [];
+  // 時差が1日中同じ日(ほぼすべての日)は計算で求める。夏時間の切り替え日は1件ずつ変換する(存在しない時刻は除外)
+  const offset = constantOffsetOfDay(date, loc.timezone);
+  const midnightUtc = offset === null ? 0 : Date.parse(`${date}T00:00:00Z`) - offset * 60_000;
   for (let m = 0; m < 24 * 60; m += step) {
-    const t = localToUtc(date, minutesToTime(m), loc.timezone);
+    const t = offset === null ? localToUtc(date, minutesToTime(m), loc.timezone) : new Date(midnightUtc + m * 60_000);
     if (t && fits(t)) out.push(t);
   }
   return out;
@@ -197,20 +324,17 @@ function evalStaff(input: EngineInput, s: EngineStaff | undefined, R: Interval, 
   if (!s || s.status !== 'active' || !s.acceptsBookings || !s.locationIds.includes(loc.id) || !svc.staffIds.includes(s.id)) {
     return { violations: [v('STAFF_INVALID')], join: null };
   }
+  const mine = occupanciesOf(input, s.id);
   const join =
     svc.capacity > 1
-      ? (input.occupancies.find(
-          (o) => o.staffId === s.id && o.locationId === loc.id && o.serviceId === svc.id && o.start.getTime() === R.start.getTime(),
-        ) ?? null)
+      ? (mine.find((o) => o.locationId === loc.id && o.serviceId === svc.id && o.start.getTime() === R.start.getTime()) ?? null)
       : null;
   if (join && join.seatsTaken + input.partySize > join.capacity) out.push(v('CAPACITY_FULL'));
-  const work = mergeIntervals(
-    input.shifts.filter((sh) => sh.staffId === s.id && sh.type === 'work' && sh.locationId === loc.id).map((sh) => ({ start: sh.start, end: sh.end })),
-  );
+  const work = workIntervals(input, s.id, loc.id);
   if (!work.some((iv) => contains(iv, B))) out.push(v('OUTSIDE_SHIFT'));
-  if (input.shifts.some((sh) => sh.staffId === s.id && sh.type !== 'work' && overlaps(sh, B))) out.push(v('STAFF_UNAVAILABLE'));
-  for (const o of input.occupancies) {
-    if (o.staffId !== s.id || (join && o.id === join.id)) continue;
+  if (shiftsOf(input, s.id).some((sh) => sh.type !== 'work' && overlaps(sh, B))) out.push(v('STAFF_UNAVAILABLE'));
+  for (const o of mine) {
+    if (join && o.id === join.id) continue;
     if (overlaps({ start: o.blockStart, end: o.blockEnd }, B)) {
       out.push(v('STAFF_BUSY'));
       break;
@@ -218,8 +342,8 @@ function evalStaff(input: EngineInput, s: EngineStaff | undefined, R: Interval, 
   }
   if (input.travelBufferMin > 0) {
     const expanded = { start: addMinutes(B.start, -input.travelBufferMin), end: addMinutes(B.end, input.travelBufferMin) };
-    for (const o of input.occupancies) {
-      if (o.staffId !== s.id || o.locationId === loc.id || (join && o.id === join.id)) continue;
+    for (const o of mine) {
+      if (o.locationId === loc.id || (join && o.id === join.id)) continue;
       if (overlaps({ start: o.blockStart, end: o.blockEnd }, expanded)) {
         out.push(v('TRAVEL_TIME'));
         break;
@@ -227,16 +351,6 @@ function evalStaff(input: EngineInput, s: EngineStaff | undefined, R: Interval, 
     }
   }
   return { violations: out, join };
-}
-
-function staffDayMinutes(input: EngineInput, staffId: string, date: string): number {
-  let total = 0;
-  for (const o of input.occupancies) {
-    if (o.staffId !== staffId) continue;
-    if (localDateOf(o.start, input.location.timezone) !== date) continue;
-    total += (o.end.getTime() - o.start.getTime()) / 60000;
-  }
-  return total;
 }
 
 function acceptable(violations: Violation[], force: boolean): boolean {
@@ -261,8 +375,8 @@ export function evaluateStart(input: EngineInput, start: Date, staffChoice: stri
   if (!svc.locationIds.includes(loc.id)) base.push(v('SERVICE_NOT_AT_LOCATION'));
   if (input.partySize < 1 || input.partySize > svc.maxPartySize || input.partySize > svc.capacity) base.push(v('PARTY_SIZE'));
 
-  const date = localDateOf(start, loc.timezone);
-  if (!businessIntervals(loc, date).some((iv) => contains(iv, R))) base.push(v('OUTSIDE_BUSINESS_HOURS'));
+  const date = localDateAt(loc, start);
+  if (!businessIntervalsCached(loc, date).some((iv) => contains(iv, R))) base.push(v('OUTSIDE_BUSINESS_HOURS'));
   if (svc.scheduleMode === 'fixed') {
     const wd = isoWeekday(date);
     const hhmm = localTimeOf(start, loc.timezone);
@@ -275,7 +389,7 @@ export function evaluateStart(input: EngineInput, start: Date, staffChoice: stri
     const minNotice = svc.minNoticeMin ?? loc.minNoticeMin;
     const maxDays = svc.maxAdvanceDays ?? loc.maxAdvanceDays;
     if (start < addMinutes(input.now, minNotice)) base.push(v('TOO_SOON'));
-    if (date > addDays(todayIn(loc.timezone, input.now), maxDays)) base.push(v('TOO_FAR'));
+    if (date > addDays(todayAt(loc, input.now), maxDays)) base.push(v('TOO_FAR'));
   }
 
   const makeOption = (staffId: string | null, join: EngineOccupancy | null): { option: StaffOption | null; violations: Violation[] } => {

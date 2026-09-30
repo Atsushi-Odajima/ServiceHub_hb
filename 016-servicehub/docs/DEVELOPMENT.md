@@ -61,4 +61,11 @@ docs/                  開発資料   manual/  購入者向け資料
 | `pnpm setup:org` | 本番用の組織と最初のオーナーを作成(対話なし・引数指定) |
 | `pnpm backup:create -- --org <slug> --out file` | 組織バックアップ |
 | `pnpm backup:verify -- --file f` | バックアップ検証 |
-| `pnpm backup:restore -- --file f --mode new\|replace` | 復元(失敗時は現行データ維持) |
+| `pnpm backup:restore -- --file f [--replace <slug>] [--dry-run] [--database-url <url>] [--migrate]` | 復元(既定は同じ組織がない環境へ。`--replace` で置き換え。1トランザクションで失敗時は現行データ維持) |
+| `pnpm load:generate -- --scale 0.1` | 負荷試験用データを servicehub_load に生成(scale=1 で目標規模・約8GB) |
+| `pnpm build && pnpm load:run -- --out docs/LOAD_TEST_REPORT.md` | 負荷試験の測定(ビルド済みサーバーを起動して autocannon で測る) |
+
+## 7. テストの追加時の注意
+- 新しい API ルートは `tests/integration/security.test.ts` が自動で網羅する(未ログイン 401・他組織IDで成功しない)。パス中の `:param` が新しい種類の場合は `TABLE_BY_SEGMENT` に対応を追加する。
+- 新しい表は `src/server/backup/spec.ts` のバックアップ対象か除外(理由付き)に加える(`backup-restore.test.ts` が検査)。
+- 一覧 API の ORDER BY は最後に ID を加えて順序を一意にする(ページング・復元の照合で必要)。
