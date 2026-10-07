@@ -67,6 +67,7 @@ export async function registerOrgRoutes(app: FastifyInstance, deps: Deps): Promi
             ...body.settings,
             notifications: { ...curSettings.notifications, ...(body.settings.notifications ?? {}) },
             retention: { ...curSettings.retention, ...(body.settings.retention ?? {}) },
+            ownerNotifications: { ...curSettings.ownerNotifications, ...(body.settings.ownerNotifications ?? {}) },
           })
         : curSettings;
       const next = {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { SOURCE_DETAIL_LABELS } from '../../../shared/constants';
 import { todayIn } from '../../../shared/time';
 import { api, ApiError, newIdempotencyKey, qs } from '../../api/client';
 import { useApi, useCan, useMe } from '../../api/hooks';
@@ -93,6 +94,7 @@ export function BookingFormModal({ initial = {}, onClose, onCreated }: { initial
   const [customer, setCustomer] = useState<{ id: string; name: string } | null>(initial.customer ?? null);
   const [newCustomer, setNewCustomer] = useState<{ name: string; nameKana: string; phone: string; email: string } | null>(null);
   const [request, setRequest] = useState('');
+  const [sourceDetail, setSourceDetail] = useState('');
   const [internalNote, setInternalNote] = useState('');
   const [manualTime, setManualTime] = useState(false);
   const [time, setTime] = useState('10:00');
@@ -149,6 +151,7 @@ export function BookingFormModal({ initial = {}, onClose, onCreated }: { initial
         customer: customer ? { customerId: customer.id } : { name: newCustomer!.name, nameKana: newCustomer!.nameKana || null, phone: newCustomer!.phone || null, email: newCustomer!.email || null },
         customerRequest: request || null,
         internalNote: internalNote || null,
+        sourceDetail: sourceDetail || null,
         channel: can('reception.operate') && !can('booking.force') ? 'reception' : 'staff',
         force: Boolean(needsForce),
         forceReason: needsForce ? forceReason : null,
@@ -291,6 +294,12 @@ export function BookingFormModal({ initial = {}, onClose, onCreated }: { initial
           </>
         ) : null}
         <div className="grid-2">
+          <SelectField
+            label="受付方法(任意)"
+            value={sourceDetail}
+            onChange={(e) => setSourceDetail(e.target.value)}
+            options={[{ value: '', label: '—' }, ...Object.entries(SOURCE_DETAIL_LABELS).map(([value, label]) => ({ value, label }))]}
+          />
           <TextAreaField label="お客様の要望" value={request} onChange={(e) => setRequest(e.target.value)} />
           {can('booking.internal_note') ? <TextAreaField label="内部メモ(お客様には表示されません)" value={internalNote} onChange={(e) => setInternalNote(e.target.value)} /> : null}
         </div>

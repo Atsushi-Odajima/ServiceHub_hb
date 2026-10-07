@@ -164,6 +164,28 @@ export function OrgSettingsPage() {
           onChange={(e) => setS({ replyToEmail: e.target.value || null })}
           error={err?.fields?.['settings.replyToEmail']}
         />
+        <TextAreaField
+          label="メールの署名(店名・連絡先など。お客様宛てメールの末尾に入ります)"
+          value={s.emailSignature}
+          maxLength={1000}
+          onChange={(e) => setS({ emailSignature: e.target.value })}
+        />
+      </Card>
+      <Card title="店舗へのメール通知">
+        <p className="small muted">お客様がWebで予約・変更・キャンセルしたときに店舗へお知らせします。宛先が空欄なら返信先メールアドレスに送ります。</p>
+        <TextField
+          label="店舗の通知先メールアドレス"
+          type="email"
+          value={s.ownerNotifications.email ?? ''}
+          onChange={(e) => setS({ ownerNotifications: { ...s.ownerNotifications, email: e.target.value || null } })}
+          error={err?.fields?.['settings.ownerNotifications.email']}
+        />
+        <div className="grid-2">
+          <Checkbox label="新しいWeb予約" checked={s.ownerNotifications.bookingCreated} onChange={(e) => setS({ ownerNotifications: { ...s.ownerNotifications, bookingCreated: e.target.checked } })} />
+          <Checkbox label="お客様による日時変更" checked={s.ownerNotifications.bookingChanged} onChange={(e) => setS({ ownerNotifications: { ...s.ownerNotifications, bookingChanged: e.target.checked } })} />
+          <Checkbox label="お客様によるキャンセル" checked={s.ownerNotifications.bookingCanceled} onChange={(e) => setS({ ownerNotifications: { ...s.ownerNotifications, bookingCanceled: e.target.checked } })} />
+          <Checkbox label="キャンセル待ちの該当者あり" checked={s.ownerNotifications.waitlistOpening} onChange={(e) => setS({ ownerNotifications: { ...s.ownerNotifications, waitlistOpening: e.target.checked } })} />
+        </div>
       </Card>
       {form.isSample ? <Alert tone="warning">サンプル組織ではメールは実際には送信されません。</Alert> : null}
       <div className="form-actions">

@@ -13,6 +13,7 @@ import { parse, zDate, zEmail, zIdempotencyKey, zIso, zOptText, zPhone, zUuid } 
 import { enforceRateLimit } from '../../ratelimit.js';
 import { type BookingActor, type BookingRow, cancelBooking, createBooking, rescheduleBooking } from '../bookings/service.js';
 import { buildIcs } from './ics.js';
+import { answerText } from '../../notifications/render.js';
 import { resolveCustomer } from '../customers/identity.js';
 import { createWaitlistEntry } from '../waitlist/service.js';
 import { WaitlistBody } from '../waitlist/routes.js';
@@ -123,7 +124,8 @@ const BookingBody = z.object({
     name: z.string().trim().min(1, 'お名前を入力してください').max(100),
     nameKana: zOptText(100),
     email: zEmail,
-    phone: zPhone.refine((v) => v !== null, '電話番号を入力してください'),
+    // 必須/任意/非表示は拠点の予約ページ設定(phoneRequirement)で判定する
+    phone: zPhone,
   }),
   customerRequest: zOptText(1000),
   answers: z.array(z.object({ questionId: zUuid, value: z.unknown() })).max(50).default([]),
@@ -235,8 +237,10 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
       await resolveLocation(q, org.id, p.loc);
       const rows = await q.many<{ id: string; type: string; label: string; help_text: string | null; options: unknown; required: boolean }>(
         `SELECT qn.id, qn.type, qn.label, qn.help_text, qn.options, qn.required FROM service_questions qn
-           JOIN services s ON s.id = qn.service_id AND s.status = 'active' AND s.is_public
-          WHERE qn.organization_id = $1 AND qn.service_id = $2 AND qn.status = 'active' ORDER BY qn.sort_order, qn.created_at`,
+          WHERE qn.organization_id = $1 AND qn.status = 'active'
+            AND EXISTS (SELECT 1 FROM services s WHERE s.organization_id = $1 AND s.id = $2 AND s.status = 'active' AND s.is_public)
+            AND (qn.service_id = $2 OR qn.service_id IS NULL)
+          ORDER BY (qn.service_id IS NULL) DESC, qn.sort_order, qn.created_at`,
         [org.id, p.serviceId],
       );
       return { items: rows.map((r) => ({ id: r.id, type: r.type, label: r.label, helpText: r.help_text, options: r.options, required: r.required })) };
@@ -324,13 +328,17 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
       { orgId: org.id },
       async (q) => {
         const loc = await resolveLocation(q, org.id, p.loc);
+        const page = parseBookingPage(loc.booking_page);
+        if (page.phoneRequirement === 'required' && !body.customer.phone) {
+          throw new AppError('VALIDATION_ERROR', '電話番号を入力してください', { fields: { 'customer.phone': '電話番号を入力してください' } });
+        }
         const r = await createBooking(q, deps, org.id, { ...PUBLIC_ACTOR, requestId: req.id }, {
           locationId: loc.id,
           serviceId: body.serviceId,
           staffId: body.staffId,
           startsAt: new Date(body.startsAt),
           partySize: body.partySize,
-          customer: body.customer,
+          customer: { ...body.customer, phone: page.phoneRequirement === 'hidden' ? null : body.customer.phone },
           customerRequest: body.customerRequest,
           answers: body.answers,
           channel: 'public',
@@ -338,6 +346,7 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
         });
         return {
           ...publicBooking(r.booking, loc),
+          completionMessage: page.completionMessage || null,
           created: r.created,
           manageUrl: `${config.APP_BASE_URL}/b/${r.manageToken}`,
           manageToken: r.manageToken,
@@ -422,16 +431,23 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
   }
 
   async function manageView(q: Q, orgId: string, bookingId: string) {
-    const b = await q.one<BookingRow & { l_name: string; l_address: string | null; l_phone: string | null; cancel_deadline_hours: number; allow_customer_cancel: boolean; allow_customer_reschedule: boolean; org_slug: string; l_slug: string }>(
+    const b = await q.one<BookingRow & { l_name: string; l_address: string | null; l_phone: string | null; cancel_deadline_hours: number; allow_customer_cancel: boolean; allow_customer_reschedule: boolean; org_slug: string; l_slug: string; booking_page: unknown }>(
       `SELECT b.*, l.name AS l_name, l.address AS l_address, l.phone AS l_phone, l.cancel_deadline_hours, l.allow_customer_cancel,
-              l.allow_customer_reschedule, o.slug AS org_slug, l.slug AS l_slug
+              l.allow_customer_reschedule, o.slug AS org_slug, l.slug AS l_slug, l.booking_page
          FROM bookings b JOIN locations l ON l.id = b.location_id JOIN organizations o ON o.id = b.organization_id
         WHERE b.organization_id = $1 AND b.id = $2`,
       [orgId, bookingId],
     );
+    const page = parseBookingPage(b.booking_page);
     const deadline = new Date(b.starts_at.getTime() - b.cancel_deadline_hours * 3600_000);
+    const changeDeadline = new Date(b.starts_at.getTime() - (page.changeDeadlineHours ?? b.cancel_deadline_hours) * 3600_000);
     const beforeDeadline = clock.now() < deadline;
+    const beforeChangeDeadline = clock.now() < changeDeadline;
     const active = b.status === 'confirmed';
+    const answers = await q.many<{ question_snapshot: { label: string; options?: { id: string; label: string }[] }; answer: unknown }>(
+      'SELECT question_snapshot, answer FROM booking_answers WHERE organization_id = $1 AND booking_id = $2 ORDER BY sort_order, id',
+      [orgId, bookingId],
+    );
     return {
       booking: b,
       view: {
@@ -441,9 +457,14 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
         serviceId: b.service_id,
         staffSpecified: b.staff_selection === 'specified',
         cancelDeadline: deadline,
+        changeDeadline,
         canCancel: active && b.allow_customer_cancel && beforeDeadline,
-        canReschedule: active && b.allow_customer_reschedule && beforeDeadline,
+        canReschedule: active && b.allow_customer_reschedule && beforeChangeDeadline,
         deadlinePassed: active && !beforeDeadline,
+        changeDeadlinePassed: active && !beforeChangeDeadline,
+        customerRequest: b.customer_request,
+        answers: answers.map((a) => ({ label: a.question_snapshot.label, value: answerText(a.question_snapshot, a.answer) })),
+        notes: page.notes || null,
       },
     };
   }
@@ -533,7 +554,7 @@ export async function registerPublicRoutes(app: FastifyInstance, deps: Deps): Pr
       { orgId: t.orgId },
       async (q) => {
         const { booking, view } = await manageView(q, t.orgId, t.bookingId);
-        if (!view.canReschedule) throw new AppError('INVALID_STATE', view.deadlinePassed ? '変更受付の締切を過ぎています。店舗へご連絡ください。' : 'この予約はWebから変更できません。');
+        if (!view.canReschedule) throw new AppError('INVALID_STATE', view.changeDeadlinePassed ? '変更受付の締切を過ぎています。店舗へご連絡ください。' : 'この予約はWebから変更できません。');
         await rescheduleBooking(q, deps, t.orgId, { ...PUBLIC_ACTOR, requestId: req.id }, t.bookingId, {
           startsAt: new Date(body.startsAt),
           staffId: view.staffSpecified ? booking.staff_id : null,

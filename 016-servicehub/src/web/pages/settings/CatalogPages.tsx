@@ -165,7 +165,26 @@ export function ServicesPage() {
           </tbody>
         </table>
       </div>
+      <CommonQuestionsCard />
     </>
+  );
+}
+
+/** 全サービス共通の事前質問(公開予約ではサービスごとの質問より先に表示) */
+function CommonQuestionsCard() {
+  const data = useApi<{ questions: QuestionDto[] }>(['common-questions'], '/api/v1/common-questions');
+  const save = useApiMutation((questions: QuestionDto[]) => api.put('/api/v1/common-questions', { questions }), {
+    invalidate: [['common-questions']],
+    success: '共通の事前質問を保存しました',
+  });
+  return (
+    <Card title="全サービス共通の事前質問">
+      <p className="small muted">ここで設定した質問は、どのサービスを予約しても表示されます。サービスごとの質問は各サービスの「事前質問」タブで設定します。</p>
+      {data.isLoading ? <Spinner /> : null}
+      {data.data ? (
+        <QuestionsEditor initial={data.data.questions} busy={save.isPending} onSave={(qs2) => save.mutate(qs2)} error={save.error as ApiError | null} />
+      ) : null}
+    </Card>
   );
 }
 

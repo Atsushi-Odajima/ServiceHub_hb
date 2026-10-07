@@ -19,7 +19,9 @@ import {
   createBooking,
   loadBookingForUpdate,
   rescheduleBooking,
+  reissueManageLink,
   restoreBooking,
+  SOURCE_DETAILS,
 } from './service.js';
 
 export function bookingActor(ctx: AuthContext, requestId?: string): BookingActor {
@@ -63,6 +65,7 @@ export function bookingDto(b: BookingListRow | BookingRow, ctx: AuthContext | nu
     partySize: b.party_size,
     status: b.status,
     channel: b.channel,
+    sourceDetail: b.source_detail ?? null,
     staffSelection: b.staff_selection,
     customerRequest: b.customer_request,
     internalNote: showInternal ? b.internal_note : undefined,
@@ -100,6 +103,7 @@ const CreateSchema = z.object({
   internalNote: zOptText(4000),
   answers: z.array(z.object({ questionId: zUuid, value: z.unknown() })).max(50).default([]),
   channel: z.enum(['staff', 'reception']).default('staff'),
+  sourceDetail: z.enum(SOURCE_DETAILS).nullable().default(null),
   force: z.boolean().default(false),
   forceReason: zOptText(500),
   idempotencyKey: zIdempotencyKey,
@@ -300,6 +304,7 @@ export async function registerBookingRoutes(app: FastifyInstance, deps: Deps): P
         events: events.map((e) => ({ type: e.event_type, from: e.from_status, to: e.to_status, data: e.data, actorType: e.actor_type, actorLabel: e.actor_label, at: e.created_at })),
         resources: resources.map((r) => r.name),
         serviceRecordId: record?.id ?? null,
+        manageLink: { available: Boolean(b.idempotency_key), active: Boolean(b.manage_token_hash), expiresAt: b.manage_token_expires_at },
       };
     });
   });
@@ -354,6 +359,24 @@ export async function registerBookingRoutes(app: FastifyInstance, deps: Deps): P
         requestId: req.id,
       });
       return bookingDto(updated, ctx);
+    });
+  });
+
+  // 予約管理リンク(お客様用)の再発行・無効化。再発行したURLはこの応答でのみ返す
+  app.post('/api/v1/bookings/:id/manage-link', async (req) => {
+    const ctx = requireAuth(req, 'booking.update.all', 'booking.update.own');
+    const { id } = parse(z.object({ id: zUuid }), req.params);
+    const body = parse(z.object({ action: z.enum(['reissue', 'revoke']), sendEmail: z.boolean().default(false) }), req.body);
+    return withTenant(pool, { orgId: ctx.orgId, userId: ctx.userId }, async (q) => {
+      const b = await loadBookingForUpdate(q, ctx.orgId, id);
+      assertBookingAccess(ctx, b, 'booking.update.all', 'booking.update.own');
+      if (body.action === 'reissue' && b.status !== 'confirmed') throw new AppError('INVALID_STATE', '来店前(予約中)の予約のみリンクを再発行できます');
+      const r = await reissueManageLink(q, deps, ctx.orgId, bookingActor(ctx, req.id), id, body);
+      return {
+        manageUrl: r.manageToken ? `${deps.config.APP_BASE_URL}/b/${r.manageToken}` : null,
+        emailQueued: r.emailQueued,
+        expiresAt: r.booking.manage_token_expires_at,
+      };
     });
   });
 

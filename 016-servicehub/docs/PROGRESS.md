@@ -106,3 +106,8 @@
 - 説明書: manual/ の15ファイル(UTF-8 BOM・CRLF)。THIRD_PARTY_NOTICES.txt は `pnpm notices`(scripts/third-party-notices.mjs)で本番の依存・画面に同梱されるライブラリ・Service Worker のライブラリから生成
 - 販売前チェック: docs/RELEASE_CHECKLIST.md(完成条件30項目の対応・必須テスト20件・E2E・人が行う確認・配布物・既知の制限)。README.md(入口)
 - 資料: OPERATIONS.md(1章 デプロイ、コマンド、復旧)、OPERATING_COSTS.md(誤りの修正)、SECURITY.md、DECISIONS.md(D-032〜D-034)、DEVELOPMENT.md、TEST_REPORT.md
+
+## ReserveFlow(#015)統合の記録
+- 内容は DECISIONS.md D-035。移行 `0005_reserveflow_merge.sql`(共通質問の service_id NULL 許可、manage_token_nonce、source_detail)。
+- 統合テスト `tests/integration/reserveflow-merge.test.ts`(7件): 店舗宛て通知(Web予約・変更・キャンセル、スタッフ操作では送らない、種類ごとの停止)、共通質問(表示順・必須検証・管理ページとCSVの回答)、管理リンクの再発行/無効化/再送メール、変更締切、電話番号の要否・完了メッセージ・ご案内のメール掲載・URL検証、一括 .ics。
+- 画面: 組織設定(店舗へのメール通知・署名)、拠点の予約ページ設定(電話番号・変更締切・同意文・完了メッセージ・ご案内・URL)、サービス一覧(共通の事前質問)、予約詳細(お客様用リンクの再発行・無効化、受付方法)、予約作成(受付方法)、CSV(カレンダー形式で出力)、公開予約・予約管理ページ。デザインは既存部品の組み合わせのみ。

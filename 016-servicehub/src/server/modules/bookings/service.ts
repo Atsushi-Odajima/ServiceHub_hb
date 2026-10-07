@@ -38,6 +38,9 @@ export interface BookingRow {
   internal_note: string | null;
   idempotency_key: string | null;
   manage_token_expires_at: Date | null;
+  manage_token_hash: string | null;
+  manage_token_nonce: number;
+  source_detail: SourceDetail | null;
   previous_booking_id: string | null;
   waitlist_entry_id: string | null;
   forced: boolean;
@@ -57,6 +60,9 @@ export interface BookingRow {
   created_at: Date;
   updated_at: Date;
 }
+
+export const SOURCE_DETAILS = ['phone', 'walk_in', 'dm', 'email', 'other'] as const;
+export type SourceDetail = (typeof SOURCE_DETAILS)[number];
 
 export interface BookingActor {
   actor: Actor;
@@ -87,11 +93,99 @@ export interface CreateBookingInput {
   idempotencyKey: string;
   previousBookingId?: string | null;
   waitlistEntryId?: string | null;
+  /** スタッフ登録時の受付経路(電話・来店・DM など) */
+  sourceDetail?: SourceDetail | null;
 }
 
-/** 管理トークンは冪等キーから決定的に生成(DBには SHA-256 のみ)。同じキーの再送で同じトークンを返せる */
-export function manageTokenFor(secret: string, orgId: string, idempotencyKey: string): string {
-  return hmac(secret, `manage:${orgId}:${idempotencyKey}`);
+/**
+ * 管理トークンは冪等キーから決定的に生成(DBには SHA-256 のみ)。同じキーの再送で同じトークンを返せる。
+ * nonce は再発行の回数。再発行すると nonce が上がり、以前のリンクは使えなくなる。
+ */
+export function manageTokenFor(secret: string, orgId: string, idempotencyKey: string, nonce = 0): string {
+  return hmac(secret, nonce > 0 ? `manage:${orgId}:${idempotencyKey}:${nonce}` : `manage:${orgId}:${idempotencyKey}`);
+}
+
+const MANAGE_TOKEN_TTL_MS = 30 * 24 * 3600_000;
+
+/** 店舗(運営者)宛ての通知を登録する。宛先: ownerNotifications.email → replyToEmail の順 */
+export async function enqueueOwnerNotification(
+  q: Q,
+  orgId: string,
+  type: 'owner_booking_created' | 'owner_booking_changed' | 'owner_booking_canceled' | 'owner_waitlist_opening',
+  b: { id: string; location_id: string; customer_id: string },
+  idempotencyKey: string,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  const org = await q.one<{ settings: unknown }>('SELECT settings FROM organizations WHERE id = $1', [orgId]);
+  const st = parseOrgSettings(org.settings);
+  const on =
+    type === 'owner_booking_created'
+      ? st.ownerNotifications.bookingCreated
+      : type === 'owner_booking_changed'
+        ? st.ownerNotifications.bookingChanged
+        : type === 'owner_booking_canceled'
+          ? st.ownerNotifications.bookingCanceled
+          : st.ownerNotifications.waitlistOpening;
+  const to = st.ownerNotifications.email ?? st.replyToEmail;
+  if (!on || !to) return;
+  await enqueueNotification(q, {
+    orgId,
+    type,
+    recipient: to,
+    customerId: b.customer_id,
+    bookingId: b.id,
+    locationId: b.location_id,
+    idempotencyKey,
+    payload: { bookingId: b.id, ...payload },
+  });
+}
+
+/**
+ * 予約管理リンクの再発行(以前のリンクは無効)/無効化。
+ * 再発行したトークンは返り値でのみ渡す(DBにはハッシュのみ)。
+ */
+export async function reissueManageLink(
+  q: Q,
+  deps: Deps,
+  orgId: string,
+  a: BookingActor,
+  bookingId: string,
+  input: { action: 'reissue' | 'revoke'; sendEmail: boolean },
+): Promise<{ booking: BookingRow; manageToken: string | null; emailQueued: boolean }> {
+  const b = await loadBookingForUpdate(q, orgId, bookingId);
+  if (!b.idempotency_key) throw invalidState('この予約には予約管理リンクがありません');
+  const nonce = b.manage_token_nonce + 1;
+  const token = manageTokenFor(deps.config.SESSION_SECRET, orgId, b.idempotency_key, nonce);
+  const revoke = input.action === 'revoke';
+  const updated = await q.one<BookingRow>(
+    `UPDATE bookings SET manage_token_nonce = $3, manage_token_hash = $4, manage_token_expires_at = $5
+      WHERE organization_id = $1 AND id = $2 RETURNING *`,
+    [orgId, bookingId, nonce, revoke ? null : sha256(token), revoke ? null : new Date(Math.max(b.ends_at.getTime(), deps.clock.now().getTime()) + MANAGE_TOKEN_TTL_MS)],
+  );
+  await addEvent(q, updated, a, revoke ? 'manage_link_revoked' : 'manage_link_reissued', null, null, { sendEmail: !revoke && input.sendEmail });
+  await writeAudit(q, orgId, a.actor, {
+    action: revoke ? 'booking.manage_link_revoked' : 'booking.manage_link_reissued',
+    targetType: 'booking',
+    targetId: bookingId,
+    locationId: b.location_id,
+    requestId: a.requestId,
+  });
+  let emailQueued = false;
+  const email = (b.contact_snapshot?.email as string | undefined) ?? null;
+  if (!revoke && input.sendEmail) {
+    if (!email) throw new AppError('VALIDATION_ERROR', 'この予約にはメールアドレスがないため送信できません');
+    emailQueued = await enqueueNotification(q, {
+      orgId,
+      type: 'booking_manage_link',
+      recipient: email,
+      customerId: b.customer_id,
+      bookingId,
+      locationId: b.location_id,
+      idempotencyKey: `booking_manage_link:${bookingId}:n${nonce}`,
+      payload: { bookingId },
+    });
+  }
+  return { booking: updated, manageToken: revoke ? null : token, emailQueued };
 }
 
 export async function notifyChange(q: Q, orgId: string, locationId: string | null, entity: string, id: string): Promise<void> {
@@ -99,7 +193,7 @@ export async function notifyChange(q: Q, orgId: string, locationId: string | nul
 }
 
 /** その拠点・日付に有効な待機があるときだけ候補を再計算する(通常の予約処理を重くしない) */
-async function refreshWaitlistIfAny(q: Q, deps: Deps, orgId: string, b: { id: string; location_id: string; starts_at: Date; location_snapshot?: { timezone?: string } | null }): Promise<void> {
+async function refreshWaitlistIfAny(q: Q, deps: Deps, orgId: string, b: { id: string; location_id: string; starts_at: Date; location_snapshot?: { timezone?: string } | null }): Promise<boolean> {
   const tz = (b.location_snapshot?.timezone as string | undefined) ?? 'Asia/Tokyo';
   const date = localDateOf(b.starts_at, tz);
   const any = await q.maybeOne(
@@ -108,6 +202,7 @@ async function refreshWaitlistIfAny(q: Q, deps: Deps, orgId: string, b: { id: st
     [orgId, b.location_id, date],
   );
   if (any) await onAvailabilityChanged(q, deps, orgId, { locationId: b.location_id, startsAt: b.starts_at, timezone: tz, sourceBookingId: b.id });
+  return Boolean(any);
 }
 
 export async function loadBookingForUpdate(q: Q, orgId: string, id: string): Promise<BookingRow> {
@@ -188,7 +283,7 @@ export async function createBooking(
   input: CreateBookingInput,
 ): Promise<{ booking: BookingRow; created: boolean; manageToken: string }> {
   const now = deps.clock.now();
-  const manageToken = manageTokenFor(deps.config.SESSION_SECRET, orgId, input.idempotencyKey);
+  let manageToken = manageTokenFor(deps.config.SESSION_SECRET, orgId, input.idempotencyKey);
 
   // 冪等: 同じキーの確定は1件だけ(再送・二重タップ)
   await advisoryLockAll(q, [`idem:${orgId}:${input.idempotencyKey}`]);
@@ -196,7 +291,10 @@ export async function createBooking(
     orgId,
     input.idempotencyKey,
   ]);
-  if (existing) return { booking: existing, created: false, manageToken };
+  if (existing) {
+    if (existing.manage_token_nonce > 0) manageToken = manageTokenFor(deps.config.SESSION_SECRET, orgId, input.idempotencyKey, existing.manage_token_nonce);
+    return { booking: existing, created: false, manageToken };
+  }
 
   if (input.force && !a.canForce) throw new AppError('FORBIDDEN', '強制予約の権限がありません');
   if (input.force && !input.forceReason) throw new AppError('VALIDATION_ERROR', '強制予約には理由の入力が必要です', { fields: { forceReason: '理由を入力してください' } });
@@ -224,10 +322,11 @@ export async function createBooking(
   );
   if (!loc) throw notFound('拠点');
 
-  // 事前質問(公開予約・スタッフ予約とも同じ検証。スタッフは任意項目の未回答を許容)
+  // 事前質問(公開予約・スタッフ予約とも同じ検証。スタッフは任意項目の未回答を許容)。全サービス共通の質問を先に並べる
   const questions = await q.many<QuestionRow>(
     `SELECT id, type, label, help_text, options, required, sort_order FROM service_questions
-      WHERE organization_id = $1 AND service_id = $2 AND status = 'active' ORDER BY sort_order, created_at`,
+      WHERE organization_id = $1 AND (service_id = $2 OR service_id IS NULL) AND status = 'active'
+      ORDER BY (service_id IS NULL) DESC, sort_order, created_at`,
     [orgId, input.serviceId],
   );
   const answers = validateAnswers(
@@ -268,8 +367,8 @@ export async function createBooking(
     `INSERT INTO bookings (organization_id, code, location_id, customer_id, service_id, staff_id, occupancy_id, starts_at, ends_at, party_size,
                            status, channel, staff_selection, service_snapshot, location_snapshot, staff_snapshot, contact_snapshot,
                            customer_request, internal_note, idempotency_key, manage_token_hash, manage_token_expires_at,
-                           previous_booking_id, waitlist_entry_id, forced, force_reason, created_by_membership_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'confirmed',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+                           previous_booking_id, waitlist_entry_id, forced, force_reason, created_by_membership_id, source_detail)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'confirmed',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
      RETURNING *`,
     [
       orgId,
@@ -301,12 +400,13 @@ export async function createBooking(
       input.internalNote ?? null,
       input.idempotencyKey,
       sha256(manageToken),
-      new Date(allocation.end.getTime() + 30 * 24 * 3600_000),
+      new Date(allocation.end.getTime() + MANAGE_TOKEN_TTL_MS),
       input.previousBookingId ?? null,
       input.waitlistEntryId ?? null,
       forced,
       forced ? input.forceReason : null,
       a.membershipId,
+      a.mode === 'staff' ? (input.sourceDetail ?? null) : null,
     ],
   );
 
@@ -378,6 +478,9 @@ export async function createBooking(
       payload: { bookingId: booking.id },
     });
   }
+  if (a.mode === 'public') {
+    await enqueueOwnerNotification(q, orgId, 'owner_booking_created', booking, `owner_booking_created:${booking.id}`);
+  }
   await notifyChange(q, orgId, booking.location_id, 'booking', booking.id);
   return { booking, created: true, manageToken };
 }
@@ -427,7 +530,7 @@ export async function rescheduleBooking(q: Q, deps: Deps, orgId: string, a: Book
   const updated = await q.one<BookingRow>(
     `UPDATE bookings SET starts_at = $3, ends_at = $4, staff_id = $5, occupancy_id = $6, location_id = $7, party_size = $8,
             staff_snapshot = $9, location_snapshot = $10, forced = forced OR $11, force_reason = CASE WHEN $11 THEN $12 ELSE force_reason END,
-            manage_token_expires_at = $13, version = version + 1
+            manage_token_expires_at = CASE WHEN manage_token_hash IS NULL THEN manage_token_expires_at ELSE $13 END, version = version + 1
       WHERE organization_id = $1 AND id = $2 RETURNING *`,
     [
       orgId,
@@ -442,7 +545,7 @@ export async function rescheduleBooking(q: Q, deps: Deps, orgId: string, a: Book
       JSON.stringify({ name: loc.name, timezone: loc.timezone, slug: loc.slug }),
       forced,
       input.forceReason ?? null,
-      new Date(allocation.end.getTime() + 30 * 24 * 3600_000),
+      new Date(allocation.end.getTime() + MANAGE_TOKEN_TTL_MS),
     ],
   );
   await addEvent(q, updated, a, 'rescheduled', b.status, updated.status, {
@@ -470,6 +573,11 @@ export async function rescheduleBooking(q: Q, deps: Deps, orgId: string, a: Book
       locationId: updated.location_id,
       idempotencyKey: `booking_changed:${bookingId}:v${updated.version}`,
       payload: { bookingId, previousStartsAt: b.starts_at },
+    });
+  }
+  if (a.mode === 'public' && updated.starts_at.getTime() !== b.starts_at.getTime()) {
+    await enqueueOwnerNotification(q, orgId, 'owner_booking_changed', updated, `owner_booking_changed:${bookingId}:v${updated.version}`, {
+      previousStartsAt: b.starts_at,
     });
   }
   await refreshWaitlistIfAny(q, deps, orgId, b);
@@ -536,7 +644,20 @@ export async function cancelBooking(
       payload: { bookingId, by: input.by },
     });
   }
-  await refreshWaitlistIfAny(q, deps, orgId, updated);
+  if (input.by === 'customer' && a.mode === 'public') {
+    await enqueueOwnerNotification(q, orgId, 'owner_booking_canceled', updated, `owner_booking_canceled:${bookingId}`, { late, reason: input.reason ?? null });
+  }
+  const hasWaitlist = await refreshWaitlistIfAny(q, deps, orgId, updated);
+  // 空いた枠に合うキャンセル待ちがいれば店舗へ知らせる(お客様への連絡は店舗が待機画面から行う)
+  const matches = hasWaitlist
+    ? await q.one<{ n: number }>(
+        `SELECT count(*)::int AS n FROM waitlist_matches WHERE organization_id = $1 AND source_booking_id = $2 AND status = 'open'`,
+        [orgId, bookingId],
+      )
+    : { n: 0 };
+  if (matches.n > 0) {
+    await enqueueOwnerNotification(q, orgId, 'owner_waitlist_opening', updated, `owner_waitlist_opening:${bookingId}`, { matches: matches.n });
+  }
   await notifyChange(q, orgId, b.location_id, 'booking', bookingId);
   return updated;
 }

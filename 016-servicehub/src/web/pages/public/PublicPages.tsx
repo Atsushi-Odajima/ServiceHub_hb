@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { BookingPage } from '../../../shared/constants';
@@ -199,10 +199,11 @@ export function PublicBookingPage() {
     const empty = v === undefined || v === '' || (Array.isArray(v) && v.length === 0) || (qn.type === 'confirm' && v !== true);
     if (qn.required && empty) qErrors[qn.id] = '回答してください';
   }
+  const phoneReq = d?.location.page.phoneRequirement ?? 'required';
   const infoValid =
     customer.name.trim() &&
     /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customer.email.trim()) &&
-    customer.phone.replace(/\D/g, '').length >= 9 &&
+    (phoneReq !== 'required' || customer.phone.replace(/\D/g, '').length >= 9) &&
     Object.keys(qErrors).length === 0;
 
   const submit = async () => {
@@ -216,7 +217,7 @@ export function PublicBookingPage() {
         staffId: staffId,
         startsAt: slot.startsAt,
         partySize,
-        customer: { name: customer.name, nameKana: customer.nameKana || null, email: customer.email, phone: customer.phone },
+        customer: { name: customer.name, nameKana: customer.nameKana || null, email: customer.email, phone: phoneReq === 'hidden' ? null : customer.phone || null },
         customerRequest: request || null,
         answers: Object.entries(answers).map(([questionId, value]) => ({ questionId, value })),
         idempotencyKey: idemRef.current,
@@ -260,6 +261,20 @@ export function PublicBookingPage() {
         </ol>
       ) : null}
       {d.location.page.message && step === 'service' ? <Alert tone="info">{d.location.page.message}</Alert> : null}
+      {step === 'service' && (d.location.page.websiteUrl || d.location.page.snsUrl) ? (
+        <p className="row small">
+          {d.location.page.websiteUrl ? (
+            <a href={d.location.page.websiteUrl} target="_blank" rel="noopener noreferrer">
+              ホームページ
+            </a>
+          ) : null}
+          {d.location.page.snsUrl ? (
+            <a href={d.location.page.snsUrl} target="_blank" rel="noopener noreferrer">
+              SNS
+            </a>
+          ) : null}
+        </p>
+      ) : null}
 
       {step === 'service' ? (
         <section className="stack">
@@ -422,7 +437,17 @@ export function PublicBookingPage() {
             autoComplete="email"
             hint="予約確認メールと変更・キャンセル用のリンクをお送りします"
           />
-          <TextField label="電話番号" type="tel" inputMode="tel" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} required autoComplete="tel" />
+          {phoneReq !== 'hidden' ? (
+            <TextField
+              label={phoneReq === 'optional' ? '電話番号(任意)' : '電話番号'}
+              type="tel"
+              inputMode="tel"
+              value={customer.phone}
+              onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+              required={phoneReq === 'required'}
+              autoComplete="tel"
+            />
+          ) : null}
           {(questions.data?.items ?? []).length > 0 ? (
             <fieldset className="stack">
               <legend>事前のご質問</legend>
@@ -439,7 +464,7 @@ export function PublicBookingPage() {
               <input tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
             </label>
           </div>
-          {!infoValid ? <p className="small muted">必須項目(お名前・メール・電話番号・必須の質問)を入力すると次へ進めます。</p> : null}
+          {!infoValid ? <p className="small muted">必須項目(お名前・メール{phoneReq === 'required' ? '・電話番号' : ''}・必須の質問)を入力すると次へ進めます。</p> : null}
           <div className="row-between">
             <Button onClick={() => go('datetime')}>‹ 戻る</Button>
             <Button type="submit" variant="primary" disabled={!infoValid}>
@@ -475,8 +500,12 @@ export function PublicBookingPage() {
               <dd>{customer.name}</dd>
               <dt>メール</dt>
               <dd>{customer.email}</dd>
-              <dt>電話</dt>
-              <dd>{customer.phone}</dd>
+              {phoneReq !== 'hidden' && customer.phone ? (
+                <>
+                  <dt>電話</dt>
+                  <dd>{customer.phone}</dd>
+                </>
+              ) : null}
               {service.priceLabel ? (
                 <>
                   <dt>料金の目安</dt>
@@ -487,11 +516,20 @@ export function PublicBookingPage() {
           </div>
           {service.notice ? <Alert tone="warning">{service.notice}</Alert> : null}
           {d.location.page.notice ? <Alert tone="info">{d.location.page.notice}</Alert> : null}
+          {d.location.page.notes ? <Alert tone="info">{d.location.page.notes}</Alert> : null}
           <p className="small">
-            Webからの変更・キャンセルは開始の{d.location.cancelDeadlineHours}時間前まで可能です。それ以降は店舗へご連絡ください
+            {d.location.page.changeDeadlineHours != null && d.location.page.changeDeadlineHours !== d.location.cancelDeadlineHours
+              ? `Webからの日時変更は開始の${d.location.page.changeDeadlineHours}時間前まで、キャンセルは${d.location.cancelDeadlineHours}時間前まで可能です。`
+              : `Webからの変更・キャンセルは開始の${d.location.cancelDeadlineHours}時間前まで可能です。`}
+            それ以降は店舗へご連絡ください
             {d.location.phone ? `(${d.location.phone})` : ''}。
           </p>
-          <Checkbox label="上記の内容と注意事項を確認しました" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+          {d.location.page.consentText ? <p className="small" style={{ whiteSpace: 'pre-wrap' }}>{d.location.page.consentText}</p> : null}
+          <Checkbox
+            label={d.location.page.consentText ? '上記の内容に同意します' : '上記の内容と注意事項を確認しました'}
+            checked={agree}
+            onChange={(e) => setAgree(e.target.checked)}
+          />
           {turnstile.siteKey ? <TurnstileWidget siteKey={turnstile.siteKey} onToken={setBotToken} resetKey={botReset} /> : null}
           <ErrorMessage error={submitErr} />
           {submitErr?.isNetwork ? (
@@ -534,6 +572,7 @@ export function PublicBookingPage() {
               <dd>{result.staffName ?? 'おまかせ'}</dd>
             </dl>
           </div>
+          {result.completionMessage ? <Alert tone="success">{result.completionMessage}</Alert> : null}
           {d.emailDelivery ? (
             <Alert tone="info">確認メールを {customer.email} にお送りしました。届かない場合は迷惑メールフォルダもご確認ください。</Alert>
           ) : (
@@ -620,7 +659,12 @@ interface ManageView {
   canCancel: boolean;
   canReschedule: boolean;
   deadlinePassed: boolean;
+  changeDeadlinePassed: boolean;
   cancelDeadline: string;
+  changeDeadline: string;
+  customerRequest: string | null;
+  answers: { label: string; value: string }[];
+  notes: string | null;
 }
 
 export function ManageBookingPage() {
@@ -696,9 +740,25 @@ export function ManageBookingPage() {
             {v.locationAddress ? <div className="small muted">{v.locationAddress}</div> : null}
             {v.locationPhone ? <div className="small">電話 {v.locationPhone}</div> : null}
           </dd>
+          {v.customerRequest ? (
+            <>
+              <dt>ご要望</dt>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{v.customerRequest}</dd>
+            </>
+          ) : null}
+          {v.answers.map((a, i) => (
+            <Fragment key={i}>
+              <dt>{a.label}</dt>
+              <dd style={{ whiteSpace: 'pre-wrap' }}>{a.value}</dd>
+            </Fragment>
+          ))}
         </dl>
       </div>
+      {v.notes ? <Alert tone="info">{v.notes}</Alert> : null}
       <ErrorMessage error={err} />
+      {v.changeDeadlinePassed && !v.deadlinePassed && v.canCancel ? (
+        <Alert tone="info">Webでの日時変更の受付は終了しました(キャンセルは{formatDateTimeJa(v.cancelDeadline, tz)}まで受け付けています)。</Alert>
+      ) : null}
       {v.deadlinePassed ? (
         <Alert tone="warning">Webでの変更・キャンセルの受付は終了しました。ご変更の場合はお手数ですが店舗へお電話ください{v.locationPhone ? `(${v.locationPhone})` : ''}。</Alert>
       ) : null}

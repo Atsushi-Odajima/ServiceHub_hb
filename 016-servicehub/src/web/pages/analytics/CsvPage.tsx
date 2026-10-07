@@ -76,11 +76,14 @@ function ExportCard({ kinds }: { kinds: typeof EXPORTS }) {
   const [err, setErr] = useState<ApiError | null>(null);
   const def = kinds.find((k) => k.kind === kind) ?? kinds[0];
   const locations = me.data?.locations ?? [];
-  const download = async () => {
+  const download = async (format: 'csv' | 'ics' = 'csv') => {
     setBusy(true);
     setErr(null);
     try {
-      const url = `/api/v1/csv/export/${def.kind}${qs({ from: def.period ? from : undefined, to: def.period ? to : undefined, locationId: locId || undefined, status: def.kind === 'customers' ? status : undefined })}`;
+      const url =
+        format === 'ics'
+          ? `/api/v1/export/bookings.ics${qs({ from, to, locationId: locId || undefined })}`
+          : `/api/v1/csv/export/${def.kind}${qs({ from: def.period ? from : undefined, to: def.period ? to : undefined, locationId: locId || undefined, status: def.kind === 'customers' ? status : undefined })}`;
       const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -88,8 +91,8 @@ function ExportCard({ kinds }: { kinds: typeof EXPORTS }) {
       }
       const blob = await res.blob();
       const cd = res.headers.get('content-disposition') ?? '';
-      const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-      const name = m ? decodeURIComponent(m[1]) : `${def.label}.csv`;
+      const m = /filename\*=UTF-8''([^;]+)/.exec(cd) ?? /filename="([^"]+)"/.exec(cd);
+      const name = m ? decodeURIComponent(m[1]) : `${def.label}.${format}`;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = name;
@@ -135,7 +138,12 @@ function ExportCard({ kinds }: { kinds: typeof EXPORTS }) {
         <div>
           <Button variant="primary" busy={busy} disabled={!online || (def.period && (!from || !to || to < from))} onClick={() => void download()}>
             CSVを出力
-          </Button>
+          </Button>{' '}
+          {def.kind === 'bookings' ? (
+            <Button busy={busy} disabled={!online || !from || !to || to < from} onClick={() => void download('ics')}>
+              カレンダー形式(.ics)で出力
+            </Button>
+          ) : null}
         </div>
       </div>
     </Card>

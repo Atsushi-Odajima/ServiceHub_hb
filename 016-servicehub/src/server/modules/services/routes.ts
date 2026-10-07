@@ -358,6 +358,58 @@ export async function registerServiceRoutes(app: FastifyInstance, deps: Deps): P
     });
   });
 
+  // 全サービス共通の事前質問(service_id IS NULL)。公開予約では各サービスの質問より先に表示する
+  const loadCommonQuestions = async (q: Q, orgId: string) => {
+    const rows = await q.many<{ id: string; type: string; label: string; help_text: string | null; options: unknown; required: boolean }>(
+      `SELECT id, type, label, help_text, options, required FROM service_questions
+        WHERE organization_id = $1 AND service_id IS NULL AND status = 'active' ORDER BY sort_order, created_at, id`,
+      [orgId],
+    );
+    return { questions: rows.map((x) => ({ id: x.id, type: x.type, label: x.label, helpText: x.help_text, options: x.options, required: x.required })) };
+  };
+
+  app.get('/api/v1/common-questions', async (req) => {
+    const ctx = requireAuth(req);
+    return withTenant(pool, { orgId: ctx.orgId }, (q) => loadCommonQuestions(q, ctx.orgId));
+  });
+
+  app.put('/api/v1/common-questions', async (req) => {
+    const ctx = requireAuth(req, 'service.manage');
+    const body = parse(z.object({ questions: z.array(QuestionSchema).max(30) }), req.body);
+    return withTenant(pool, { orgId: ctx.orgId, userId: ctx.userId }, async (q) => {
+      const keepIds = body.questions.map((x) => x.id).filter((x): x is string => Boolean(x));
+      await q.exec(
+        `UPDATE service_questions SET status = 'archived' WHERE organization_id = $1 AND service_id IS NULL AND status = 'active'
+            AND NOT (id = ANY($2::uuid[]))`,
+        [ctx.orgId, keepIds],
+      );
+      for (const [i, x] of body.questions.entries()) {
+        const n = x.id
+          ? await q.exec(
+              `UPDATE service_questions SET type=$3, label=$4, help_text=$5, options=$6, required=$7, sort_order=$8, status='active'
+                WHERE organization_id = $1 AND service_id IS NULL AND id = $2`,
+              [ctx.orgId, x.id, x.type, x.label, x.helpText, JSON.stringify(x.options), x.required, i],
+            )
+          : 0;
+        if (n === 0) {
+          await q.exec(
+            `INSERT INTO service_questions (organization_id, service_id, type, label, help_text, options, required, sort_order)
+             VALUES ($1,NULL,$2,$3,$4,$5,$6,$7)`,
+            [ctx.orgId, x.type, x.label, x.helpText, JSON.stringify(x.options), x.required, i],
+          );
+        }
+      }
+      await writeAudit(q, ctx.orgId, actorOf(ctx), {
+        action: 'service.common_questions_updated',
+        targetType: 'organization',
+        targetId: ctx.orgId,
+        metadata: { count: body.questions.length },
+        requestId: req.id,
+      });
+      return loadCommonQuestions(q, ctx.orgId);
+    });
+  });
+
   // 事前質問(医療問診用途にはしない)。既存の予約の回答は質問スナップショットを持つため、変更しても過去は変わらない
   app.put('/api/v1/services/:id/questions', async (req) => {
     const ctx = requireAuth(req, 'service.manage');

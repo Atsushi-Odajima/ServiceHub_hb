@@ -1,5 +1,6 @@
 import { toDateTime, localDayRange } from '../../../shared/time.js';
-import { CHANNEL_LABELS } from '../../../shared/constants.js';
+import { CHANNEL_LABELS, SOURCE_DETAIL_LABELS } from '../../../shared/constants.js';
+import { answerText } from '../../notifications/render.js';
 import type { Permission } from '../../../shared/permissions.js';
 import { type AuthContext, can } from '../../auth/context.js';
 import type { Q } from '../../db/tx.js';
@@ -108,12 +109,19 @@ export async function buildExport(q: Q, ctx: AuthContext, kind: ExportKind, f: E
         row: (r) => [r.id, r.name, r.name_kana, r.email, r.phone, r.tags, r.location_name, r.memo, STATUS_JA[r.status] ?? r.status, fmt(r.first_visit_at, tz), fmt(r.last_visit_at, tz), fmt(r.created_at, tz)],
       };
     }
-    case 'bookings':
+    case 'bookings': {
+      const showInternal = can(ctx, 'booking.internal_note');
       return {
-        header: ['予約番号', '拠点', '開始', '終了', 'サービス', '担当', '顧客ID', '顧客名', '人数', '状態', '受付経路', '強制予約', 'キャンセル理由', '締切後キャンセル', '消化', '作成日時'],
+        header: [
+          '予約番号', '拠点', '開始', '終了', 'サービス', '担当', '顧客ID', '顧客名', '人数', '状態', '受付経路', '強制予約', 'キャンセル理由', '締切後キャンセル', '消化', '作成日時',
+          '受付方法', 'ご要望', '事前質問の回答', ...(showInternal ? ['社内メモ'] : []),
+        ],
         sql: `SELECT b.code, b.location_snapshot->>'name' AS location_name, coalesce(b.location_snapshot->>'timezone', $5) AS tz, b.starts_at, b.ends_at,
                      b.service_snapshot->>'name' AS service_name, b.staff_snapshot->>'displayName' AS staff_name, b.customer_id, c.name AS customer_name,
-                     b.party_size, b.status, b.channel, b.forced, b.cancel_reason, b.cancel_late, b.consumption_kind, b.created_at
+                     b.party_size, b.status, b.channel, b.forced, b.cancel_reason, b.cancel_late, b.consumption_kind, b.created_at,
+                     b.source_detail, b.customer_request, b.internal_note,
+                     (SELECT json_agg(json_build_object('q', a.question_snapshot, 'a', a.answer) ORDER BY a.sort_order, a.id)
+                        FROM booking_answers a WHERE a.organization_id = b.organization_id AND a.booking_id = b.id) AS answers
                 FROM bookings b JOIN customers c ON c.id = b.customer_id AND c.organization_id = b.organization_id
                WHERE b.organization_id = $1 AND b.starts_at >= $2 AND b.starts_at < $3 AND ($4::uuid[] IS NULL OR b.location_id = ANY($4::uuid[]))
                ORDER BY b.starts_at, b.id`,
@@ -135,8 +143,15 @@ export async function buildExport(q: Q, ctx: AuthContext, kind: ExportKind, f: E
           r.cancel_late === null ? null : r.cancel_late,
           r.consumption_kind === 'pass' ? '回数券' : r.consumption_kind === 'plan' ? '利用プラン' : null,
           fmt(r.created_at, r.tz),
+          r.source_detail ? (SOURCE_DETAIL_LABELS[r.source_detail] ?? r.source_detail) : null,
+          r.customer_request,
+          ((r.answers as { q: { label: string; options?: { id: string; label: string }[] }; a: unknown }[] | null) ?? [])
+            .map((x) => `${x.q.label}: ${answerText(x.q, x.a)}`)
+            .join(' / ') || null,
+          ...(showInternal ? [r.internal_note] : []),
         ],
       };
+    }
     case 'cancellations':
       // キャンセル(顧客/事業者)と無断欠席。区分・理由・日時・操作者(予約の履歴から)・締切後か・回数券/プランの消化の確認
       return {

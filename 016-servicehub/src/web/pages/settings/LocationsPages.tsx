@@ -504,6 +504,37 @@ function LocationPageForm({ loc }: { loc: LocationDto }) {
         <TextField label="テーマカラー" type="color" value={p.themeColor} onChange={(e) => setP({ ...p, themeColor: e.target.value })} />
         <Checkbox label="お客様がスタッフを指名できる" checked={p.allowStaffSelection} onChange={(e) => setP({ ...p, allowStaffSelection: e.target.checked })} />
         <Checkbox label="価格表示を出す" checked={p.showPrices} onChange={(e) => setP({ ...p, showPrices: e.target.checked })} />
+        <SelectField
+          label="電話番号の入力"
+          value={p.phoneRequirement}
+          onChange={(e) => setP({ ...p, phoneRequirement: e.target.value as BookingPage['phoneRequirement'] })}
+          options={[
+            { value: 'required', label: '必須' },
+            { value: 'optional', label: '任意' },
+            { value: 'hidden', label: '聞かない' },
+          ]}
+        />
+        <TextField
+          label="Webからの日時変更の締切(開始の何時間前まで。空欄ならキャンセル締切と同じ)"
+          type="number"
+          min={0}
+          max={720}
+          value={p.changeDeadlineHours ?? ''}
+          onChange={(e) => setP({ ...p, changeDeadlineHours: e.target.value === '' ? null : Number(e.target.value) })}
+        />
+        <TextAreaField
+          label="同意事項(空欄なら「上記の内容と注意事項を確認しました」で同意を取ります)"
+          value={p.consentText}
+          onChange={(e) => setP({ ...p, consentText: e.target.value })}
+        />
+        <TextAreaField label="予約完了画面のメッセージ" value={p.completionMessage} onChange={(e) => setP({ ...p, completionMessage: e.target.value })} />
+        <TextAreaField
+          label="ご案内(持ち物・アクセスなど。確認画面・予約確認メール・リマインダーに表示)"
+          value={p.notes}
+          onChange={(e) => setP({ ...p, notes: e.target.value })}
+        />
+        <TextField label="ホームページURL" type="url" value={p.websiteUrl} onChange={(e) => setP({ ...p, websiteUrl: e.target.value })} placeholder="https://" />
+        <TextField label="SNSのURL" type="url" value={p.snsUrl} onChange={(e) => setP({ ...p, snsUrl: e.target.value })} placeholder="https://" />
         <ErrorMessage error={save.error} />
         <div className="form-actions">
           <Button variant="primary" busy={save.isPending} onClick={() => save.mutate({ bookingPage: p })}>

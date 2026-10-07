@@ -26,16 +26,21 @@ function fold(line: string): string {
   return out.join('\r\n');
 }
 
-export function buildIcs(e: { uid: string; start: Date; end: Date; summary: string; location: string; description: string; now: Date; canceled?: boolean }): string {
-  const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//ServiceHub//Booking//JA',
-    'CALSCALE:GREGORIAN',
-    `METHOD:${e.canceled ? 'CANCEL' : 'PUBLISH'}`,
+export interface IcsEvent {
+  uid: string;
+  start: Date;
+  end: Date;
+  summary: string;
+  location: string;
+  description: string;
+  canceled?: boolean;
+}
+
+function eventLines(e: IcsEvent, now: Date): string[] {
+  return [
     'BEGIN:VEVENT',
     `UID:${esc(e.uid)}`,
-    `DTSTAMP:${fmt(e.now)}`,
+    `DTSTAMP:${fmt(now)}`,
     `DTSTART:${fmt(e.start)}`,
     `DTEND:${fmt(e.end)}`,
     `SUMMARY:${esc(e.summary)}`,
@@ -43,6 +48,32 @@ export function buildIcs(e: { uid: string; start: Date; end: Date; summary: stri
     `DESCRIPTION:${esc(e.description)}`,
     `STATUS:${e.canceled ? 'CANCELLED' : 'CONFIRMED'}`,
     'END:VEVENT',
+  ];
+}
+
+export function buildIcs(e: IcsEvent & { now: Date }): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ServiceHub//Booking//JA',
+    'CALSCALE:GREGORIAN',
+    `METHOD:${e.canceled ? 'CANCEL' : 'PUBLISH'}`,
+    ...eventLines(e, e.now),
+    'END:VCALENDAR',
+  ];
+  return lines.map(fold).join('\r\n') + '\r\n';
+}
+
+/** 複数予約をまとめた iCalendar(管理側の一括出力。Googleカレンダー等への取り込み用) */
+export function buildIcsCalendar(events: IcsEvent[], now: Date, name: string): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ServiceHub//Bookings//JA',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${esc(name)}`,
+    ...events.flatMap((e) => eventLines(e, now)),
     'END:VCALENDAR',
   ];
   return lines.map(fold).join('\r\n') + '\r\n';

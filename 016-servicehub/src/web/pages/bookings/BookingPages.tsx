@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, CHANNEL_LABELS, type BookingStatus } from '../../../shared/constants';
+import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, CHANNEL_LABELS, SOURCE_DETAIL_LABELS, type BookingStatus } from '../../../shared/constants';
 import { addDays, localToUtcLenient, todayIn } from '../../../shared/time';
 import { api, qs, type ApiError } from '../../api/client';
 import { useApi, useApiMutation, useCan, useCurrentLocation, useMe, useOnline } from '../../api/hooks';
@@ -43,6 +43,7 @@ export interface BookingDto {
   partySize: number;
   status: BookingStatus;
   channel: string;
+  sourceDetail: string | null;
   customerRequest: string | null;
   internalNote?: string | null;
   forced: boolean;
@@ -157,6 +158,7 @@ interface BookingDetail extends BookingDto {
   events: { type: string; from: string | null; to: string | null; data: any; actorType: string; actorLabel: string | null; at: string }[];
   resources: string[];
   serviceRecordId: string | null;
+  manageLink: { available: boolean; active: boolean; expiresAt: string | null };
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -170,6 +172,8 @@ const EVENT_LABELS: Record<string, string> = {
   status_reverted: '状態の取消',
   restored: '復元',
   next_booking_created: '次回予約を作成',
+  manage_link_reissued: 'お客様用リンクを再発行',
+  manage_link_revoked: 'お客様用リンクを無効化',
 };
 
 export function formatAnswer(a: { question: { type: string; options?: { id: string; label: string }[] }; answer: unknown }): string {
@@ -179,6 +183,45 @@ export function formatAnswer(a: { question: { type: string; options?: { id: stri
   if (a.question.type === 'single_choice') return a.question.options?.find((o) => o.id === v)?.label ?? String(v);
   if (a.question.type === 'multi_choice' && Array.isArray(v)) return v.map((x) => a.question.options?.find((o) => o.id === x)?.label ?? x).join('、');
   return typeof v === 'string' ? v : JSON.stringify(v);
+}
+
+/** お客様用の予約管理リンク(確認・変更・キャンセル)の再発行・無効化 */
+function ManageLinkCard({ bookingId, active, canReissue, hasEmail }: { bookingId: string; active: boolean; canReissue: boolean; hasEmail: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const m = useApiMutation((body: { action: 'reissue' | 'revoke'; sendEmail: boolean }) => api.post<{ manageUrl: string | null; emailQueued: boolean }>(`/api/v1/bookings/${bookingId}/manage-link`, body), {
+    invalidate: [['booking', bookingId]],
+    success: '更新しました',
+    onSuccess: (r) => setUrl(r.manageUrl),
+  });
+  return (
+    <Card title="お客様用の予約管理リンク">
+      <p className="small muted">
+        {active ? '現在のリンクは有効です。' : '現在リンクは無効です。'}
+        再発行すると以前のリンクは使えなくなります。リンクを紛失した・他人に知られた場合に使います。
+      </p>
+      <ErrorMessage error={m.error} />
+      {url ? (
+        <TextField label="新しいリンク(この画面でのみ表示されます)" value={url} readOnly onFocus={(e) => e.currentTarget.select()} />
+      ) : null}
+      <div className="row">
+        {canReissue && hasEmail ? (
+          <Button busy={m.isPending} onClick={() => m.mutate({ action: 'reissue', sendEmail: true })}>
+            再発行してメールで送る
+          </Button>
+        ) : null}
+        {canReissue ? (
+          <Button busy={m.isPending} onClick={() => m.mutate({ action: 'reissue', sendEmail: false })}>
+            再発行してURLを表示
+          </Button>
+        ) : null}
+        {active ? (
+          <Button variant="danger" busy={m.isPending} onClick={() => m.mutate({ action: 'revoke', sendEmail: false })}>
+            無効にする
+          </Button>
+        ) : null}
+      </div>
+    </Card>
+  );
 }
 
 export function BookingDetailPage() {
@@ -215,6 +258,7 @@ export function BookingDetailPage() {
         sub={
           <>
             予約番号 <span className="mono">{b.code}</span> ・ {CHANNEL_LABELS[b.channel] ?? b.channel}
+            {b.sourceDetail ? `(${SOURCE_DETAIL_LABELS[b.sourceDetail] ?? b.sourceDetail})` : ''}
           </>
         }
         actions={<StatusBadge status={b.status} size="lg" />}
@@ -362,6 +406,7 @@ export function BookingDetailPage() {
           <p className="small muted">質問は予約時点の内容で保存されています。</p>
         </Card>
       ) : null}
+      {b.manageLink.available && (can('booking.update.all') || can('booking.update.own')) ? <ManageLinkCard bookingId={b.id} active={b.manageLink.active} canReissue={b.status === 'confirmed'} hasEmail={Boolean(b.customer.email)} /> : null}
       {b.internalNote !== undefined ? (
         <Card title="内部メモ" actions={<Button size="sm" onClick={() => setNoteEdit(b.internalNote ?? '')}>編集</Button>}>
           <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{b.internalNote || <span className="muted">なし</span>}</p>

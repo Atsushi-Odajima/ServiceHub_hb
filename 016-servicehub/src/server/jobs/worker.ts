@@ -53,7 +53,7 @@ export async function processDueNotifications(deps: Deps, limit = 20): Promise<W
           n.organization_id,
         ]);
         const settings = parseOrgSettings(org.settings);
-        const r = await renderNotification(q, deps, n, org.name, settings.replyToEmail);
+        const r = await renderNotification(q, deps, n, org.name, settings.replyToEmail, settings.emailSignature);
         if ('skip' in r) return { skip: r.skip, subject: null as string | null, mail: null };
         if (org.is_sample) return { skip: 'sample_org', subject: r.subject, mail: null };
         if (!allowlisted(deps.config.EMAIL_ALLOWLIST, r.to)) return { skip: 'not_allowlisted', subject: r.subject, mail: null };

@@ -13,6 +13,8 @@ DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB
   5. 第三者による脆弱性診断(推奨)、本番環境での性能確認
   6. Turnstile を使う場合は実際のキーでの確認
 新機能は追加しない(仕様の完成条件を満たした後は、見つかった不具合の修正のみ)。
+2026-10 追記: #015 ReserveFlow の機能を統合した(DECISIONS.md D-035、ブランチ claude/merge-reserveflow)。
+  移さなかった機能(定期開催クラスの回ごとの管理など)は D-035 の最後に一覧がある。
 
 確認のコマンド:
   pnpm typecheck && pnpm test && pnpm test:e2e

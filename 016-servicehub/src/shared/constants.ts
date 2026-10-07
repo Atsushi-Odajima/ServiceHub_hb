@@ -80,12 +80,20 @@ export const PASS_ENTRY_LABELS: Record<string, string> = {
   carryover_out: '繰越(移出)',
 };
 
+/** スタッフ登録予約の受付方法(ReserveFlow から統合) */
+export const SOURCE_DETAIL_LABELS: Record<string, string> = { phone: '電話', walk_in: '来店', dm: 'DM・SNS', email: 'メール', other: 'その他' };
+
 export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   booking_confirmed: '予約確定',
   booking_changed: '予約変更',
   booking_canceled: '予約キャンセル',
   booking_reminder: 'リマインダー',
   waitlist_available: '空き枠のお知らせ',
+  booking_manage_link: '予約管理リンクの再送',
+  owner_booking_created: '店舗向け: 新しいWeb予約',
+  owner_booking_changed: '店舗向け: お客様による予約変更',
+  owner_booking_canceled: '店舗向け: お客様によるキャンセル',
+  owner_waitlist_opening: '店舗向け: キャンセル待ちの該当者あり',
   pass_expiring: '回数券期限のお知らせ',
   plan_expiring: 'プラン期限のお知らせ',
   member_invitation: 'メンバー招待',
@@ -117,6 +125,18 @@ export const OrgSettingsSchema = z.object({
     })
     .prefault({}),
   replyToEmail: z.string().email().nullable().default(null),
+  /** 店舗(運営者)宛ての通知。宛先が空なら replyToEmail を使う。どちらも空なら送らない */
+  ownerNotifications: z
+    .object({
+      email: z.string().email().nullable().default(null),
+      bookingCreated: z.boolean().default(true),
+      bookingChanged: z.boolean().default(true),
+      bookingCanceled: z.boolean().default(true),
+      waitlistOpening: z.boolean().default(true),
+    })
+    .prefault({}),
+  /** お客様宛てメールの末尾に入れる署名(店名・連絡先など) */
+  emailSignature: z.string().max(1000).default(''),
   /** 将来の保存期間設定用(初版は手動匿名化のみ) */
   retention: z
     .object({
@@ -141,6 +161,19 @@ export const BookingPageSchema = z.object({
     .default('#0f5f73'),
   allowStaffSelection: z.boolean().default(true),
   showPrices: z.boolean().default(true),
+  /** 同意チェックの文言。空なら既定の文言で表示する */
+  consentText: z.string().max(2000).default(''),
+  /** 電話番号の入力: required=必須 / optional=任意 / hidden=聞かない */
+  phoneRequirement: z.enum(['required', 'optional', 'hidden']).default('required'),
+  /** 予約完了画面に表示するメッセージ */
+  completionMessage: z.string().max(2000).default(''),
+  /** 予約ページと確認メールに載せる案内(持ち物・アクセスなど) */
+  notes: z.string().max(2000).default(''),
+  // リンクとして表示するため http(s) のみ許可(javascript: などを防ぐ)
+  websiteUrl: z.string().trim().max(500).regex(/^(https?:\/\/\S+)?$/, 'http:// または https:// で始まるURLを入力してください').default(''),
+  snsUrl: z.string().trim().max(500).regex(/^(https?:\/\/\S+)?$/, 'http:// または https:// で始まるURLを入力してください').default(''),
+  /** Webからの日時変更の締切(開始の何時間前まで)。null = キャンセル締切と同じ */
+  changeDeadlineHours: z.number().int().min(0).max(720).nullable().default(null),
 });
 export type BookingPage = z.infer<typeof BookingPageSchema>;
 
