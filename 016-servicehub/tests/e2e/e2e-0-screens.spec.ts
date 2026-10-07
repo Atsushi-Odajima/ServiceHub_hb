@@ -21,6 +21,7 @@ const PAGES: { path: string; heading: RegExp }[] = [
   { path: '/app/settings/backup', heading: /^バックアップと復元$/ },
   { path: '/app/reception', heading: /受付モード/ },
   { path: '/app/waitlist', heading: /待機リスト/ },
+  { path: '/app/announcement', heading: /空き枠お知らせ画像/ },
   { path: '/app/kpi', heading: /運営KPI/ },
   { path: '/app/search?q=%E5%B8%B8%E9%80%A3', heading: /検索/ },
   { path: '/app/csv', heading: /CSV入出力/ },

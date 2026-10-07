@@ -196,7 +196,14 @@ describe('テナント分離(登録済みの全API)', () => {
     const leaked: string[] = [];
     for (const r of apiRoutes()) {
       if (r.method !== 'GET' || r.url.includes(':') || r.url === '/api/v1/events' || r.url === '/api/v1/backup/download') continue;
-      const extra = r.url === '/api/v1/search' ? '?q=常連' : r.url === '/api/v1/availability' ? `?locationId=${orgB.locations[0].id}&serviceId=${randomUUID()}&date=2030-01-08` : '';
+      const extra =
+        r.url === '/api/v1/search'
+          ? '?q=常連'
+          : r.url === '/api/v1/availability'
+            ? `?locationId=${orgB.locations[0].id}&serviceId=${randomUUID()}&date=2030-01-08`
+            : r.url === '/api/v1/availability/announcement'
+              ? `?locationId=${ids.locations.ikebukuro}&serviceId=${ids.services.personal60}&from=2030-01-08`
+              : '';
       const res = await ownerB.get(`${r.url}${extra}`);
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       for (const m of aMarkers) if (text.includes(m)) leaked.push(`${r.url}: ${m.slice(0, 12)}`);

@@ -22,3 +22,10 @@ DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB
 サンプルログイン: owner@sample-wellness.example / sample-pass-2026 (pnpm db:seed:sample -- --reset)
 開発サーバー: pnpm build && (set -a; . ./.env; set +a; node dist/server/index.js)
 注意: pkill -f "node dist/..." は実行中のシェル自身に一致するので使わない。fuser -k 3100/tcp を使う。
+2026-10 追記: #005 サロン空き枠お知らせ画像メーカーを「ServiceHub 空き枠お知らせ画像」として統合した
+  (DECISIONS.md D-036、ブランチ claude/merge-salon-availability)。画面 /app/announcement。
+  残り: 画面デザインの調整(プレビューを編集欄の横/上に固定する等)、実機 Chrome/Safari で日本語ファイル名の
+  PNG 保存とフォントの見え方の確認。
+  統合作業中に見つけた既存の不具合(未修正): PATCH /api/v1/services/:id に一部の項目だけを送ると、
+  zod の partial() が既定値を補うため送っていない項目(担当スタッフ・拠点・必要リソース等)が既定値で上書きされる。
+  画面は全項目を送るため表に出ていないが、API を部分更新で使う前に直すこと。

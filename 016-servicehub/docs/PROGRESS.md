@@ -111,3 +111,10 @@
 - 内容は DECISIONS.md D-035。移行 `0005_reserveflow_merge.sql`(共通質問の service_id NULL 許可、manage_token_nonce、source_detail)。
 - 統合テスト `tests/integration/reserveflow-merge.test.ts`(7件): 店舗宛て通知(Web予約・変更・キャンセル、スタッフ操作では送らない、種類ごとの停止)、共通質問(表示順・必須検証・管理ページとCSVの回答)、管理リンクの再発行/無効化/再送メール、変更締切、電話番号の要否・完了メッセージ・ご案内のメール掲載・URL検証、一括 .ics。
 - 画面: 組織設定(店舗へのメール通知・署名)、拠点の予約ページ設定(電話番号・変更締切・同意文・完了メッセージ・ご案内・URL)、サービス一覧(共通の事前質問)、予約詳細(お客様用リンクの再発行・無効化、受付方法)、予約作成(受付方法)、CSV(カレンダー形式で出力)、公開予約・予約管理ページ。デザインは既存部品の組み合わせのみ。
+
+## サロン空き枠お知らせ画像メーカー(#005)統合の記録
+- 内容は DECISIONS.md D-036。名称「ServiceHub 空き枠お知らせ画像」。画面 /app/announcement(メニュー「日々の運営」)、API `GET /api/v1/availability/announcement`。移行なし。
+- コード: src/server/modules/announcement/routes.ts、src/shared/announcement/core.ts・render.ts(元ツールの描画の移植)、src/web/pages/operations/AnnouncementPage.tsx。
+- テスト: 単体 tests/unit/announcement.test.ts(14件: 日付・自動選択・上書き・1枠告知・チェック・全サイズ/種類のレイアウトのはみ出しなし)、統合 tests/integration/announcement.test.ts(9件: 7日分の候補と空き・予約の反映・休業日・過去時刻・基準・スタッフ指定・入力検証・権限・テナント分離)、security.test.ts の一覧漏えい検査に追加、E2E e2e-10-announcement(全端末でプレビューとPNG保存)、e2e-0 主要画面・e2e-8 アクセシビリティに画面を追加。
+- テスト件数: vitest 239 → 262 件。E2E は Linux の POSIX ロケールで日本語のダウンロード名が "download" になるため、playwright.config.ts で Chromium を UTF-8 ロケール(LC_ALL=C.UTF-8)で起動するようにした。
+- 画面のデザインは既存部品の組み合わせのみ(仮)。プレビューが画面の下にあり、日ごとの編集欄が縦に長い。

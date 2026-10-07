@@ -29,7 +29,8 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 20_000,
     screenshot: 'only-on-failure',
-    launchOptions: executablePath ? { executablePath } : {},
+    // POSIX ロケールの Linux では Chromium が日本語のダウンロード名を "download" にしてしまうため、UTF-8 ロケールで起動する
+    launchOptions: { ...(executablePath ? { executablePath } : {}), env: { ...process.env, LC_ALL: process.env.LC_ALL || 'C.UTF-8' } },
   },
   // e2e-0(主要画面)は全端末。複数端末を1本で扱うシナリオは担当端末のプロジェクトでだけ実行する
   projects: [

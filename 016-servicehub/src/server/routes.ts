@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Deps } from './deps.js';
+import { registerAnnouncementRoutes } from './modules/announcement/routes.js';
 import { registerAuditRoutes } from './modules/audit/routes.js';
 import { registerAuthRoutes } from './modules/auth/routes.js';
 import { registerBackupRoutes } from './modules/backup/routes.js';
@@ -33,6 +34,7 @@ export async function registerRoutes(app: FastifyInstance, deps: Deps): Promise<
   await registerResourceRoutes(app, deps);
   await registerShiftRoutes(app, deps);
   await registerBookingRoutes(app, deps);
+  await registerAnnouncementRoutes(app, deps);
   await registerCustomerRoutes(app, deps);
   await registerPublicRoutes(app, deps);
   await registerNotificationRoutes(app, deps);

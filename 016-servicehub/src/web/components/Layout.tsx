@@ -28,6 +28,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
       { to: '/app/reception', label: '受付モード', icon: '◉', any: ['reception.operate'] },
       { to: '/app/customers', label: '顧客', icon: '☺', any: ['customer.read'] },
       { to: '/app/waitlist', label: '待機リスト', icon: '⧗', any: ['waitlist.read'] },
+      { to: '/app/announcement', label: '空き枠お知らせ画像', icon: '▣', any: ['booking.create.all'] },
     ],
   },
   {

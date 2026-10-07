@@ -17,6 +17,7 @@ const APP_PAGES = [
   '/app/plans',
   '/app/shifts',
   '/app/waitlist',
+  '/app/announcement',
   '/app/kpi',
   '/app/search?q=%E5%B8%B8%E9%80%A3',
   '/app/csv',
