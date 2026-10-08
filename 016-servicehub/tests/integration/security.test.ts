@@ -203,7 +203,9 @@ describe('テナント分離(登録済みの全API)', () => {
             ? `?locationId=${orgB.locations[0].id}&serviceId=${randomUUID()}&date=2030-01-08`
             : r.url === '/api/v1/availability/announcement'
               ? `?locationId=${ids.locations.ikebukuro}&serviceId=${ids.services.personal60}&from=2030-01-08`
-              : '';
+              : r.url === '/api/v1/name-badges'
+                ? `?locationId=${ids.locations.ikebukuro}&date=${t.clock.now().toISOString().slice(0, 10)}`
+                : '';
       const res = await ownerB.get(`${r.url}${extra}`);
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       for (const m of aMarkers) if (text.includes(m)) leaked.push(`${r.url}: ${m.slice(0, 12)}`);

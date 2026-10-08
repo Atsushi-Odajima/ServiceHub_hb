@@ -118,3 +118,11 @@
 - テスト: 単体 tests/unit/announcement.test.ts(14件: 日付・自動選択・上書き・1枠告知・チェック・全サイズ/種類のレイアウトのはみ出しなし)、統合 tests/integration/announcement.test.ts(9件: 7日分の候補と空き・予約の反映・休業日・過去時刻・基準・スタッフ指定・入力検証・権限・テナント分離)、security.test.ts の一覧漏えい検査に追加、E2E e2e-10-announcement(全端末でプレビューとPNG保存)、e2e-0 主要画面・e2e-8 アクセシビリティに画面を追加。
 - テスト件数: vitest 239 → 262 件。E2E は Linux の POSIX ロケールで日本語のダウンロード名が "download" になるため、playwright.config.ts で Chromium を UTF-8 ロケール(LC_ALL=C.UTF-8)で起動するようにした。
 - 画面のデザインは既存部品の組み合わせのみ(仮)。プレビューが画面の下にあり、日ごとの編集欄が縦に長い。
+
+## 名札・受付チェック表メーカー(#010)統合の記録
+- 内容は DECISIONS.md D-037。名称「ServiceHub 名札・受付表」。画面 /app/name-badges(メニュー「日々の運営」、予定表のグループ枠のダイアログからも開ける)、API `GET /api/v1/name-badges`。移行なし。
+- コード: src/server/modules/namebadges/routes.ts、src/shared/namebadge/core.ts(番号・自然順・並び順・同行者・ページ分割・文字の収まり判定の移植)、src/web/pages/operations/NameBadgePage.tsx、印刷用 CSS は src/web/styles/app.css の `.nb-*`。
+- テスト: 単体 tests/unit/namebadge.test.ts(18件: 番号の順序と欠番・自然順・同行者/1予約1枚・並び順・所属欄・ページ分割・除外・上限・文字幅と折り返し・文字サイズの段階・収まらない項目の報告)、統合 tests/integration/namebadges.test.ts(8件: 回の一覧と人数、回の予約・取消は氏名なし・欠番、後からの取消で番号不変、入力検証、マネージャー/受付の拠点スコープ、スタッフは担当分のみ、テナント分離、未ログイン)、security.test.ts の一覧漏えい検査に追加、E2E e2e-11-name-badges(全端末: 満席ヨガの回で名札6枚・受付表6行の番号一致、除外、印刷メディアで名札 91mm × 55mm・A4、PDF 2ページ)、e2e-0 主要画面・e2e-8 アクセシビリティに画面を追加。
+- テスト件数: vitest 262 → 288 件。E2E 45 → 49 件合格(失敗は統合前と同じ e2e-6-realtime-devices の desktop 1件のみ・時刻依存の既知事象)。
+- 印刷: Chromium の印刷メディアと PDF 出力で寸法・ページ数を確認した。実際のプリンターでの印刷は未確認。
+- 画面のデザインは既存部品の組み合わせのみ(仮)。プレビューは実寸(210mm 幅)を横スクロールで表示する。

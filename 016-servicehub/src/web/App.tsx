@@ -21,6 +21,7 @@ import { ReceptionPage } from './pages/operations/ReceptionPage';
 import { SchedulePage } from './pages/operations/SchedulePage';
 import { WaitlistPage } from './pages/operations/WaitlistPage';
 import { AnnouncementPage } from './pages/operations/AnnouncementPage';
+import { NameBadgePage } from './pages/operations/NameBadgePage';
 import { AuditPage } from './pages/analytics/AuditPage';
 import { CsvPage } from './pages/analytics/CsvPage';
 import { KpiPage } from './pages/analytics/KpiPage';
@@ -85,6 +86,7 @@ export function App() {
           <Route path="settings/backup" element={<RequirePerm any={['backup.manage'] as Permission[]}><BackupPage /></RequirePerm>} />
           <Route path="schedule" element={<RequirePerm any={['booking.read.all','booking.read.own'] as Permission[]}><SchedulePage /></RequirePerm>} />
           <Route path="announcement" element={<RequirePerm any={['booking.create.all'] as Permission[]}><AnnouncementPage /></RequirePerm>} />
+          <Route path="name-badges" element={<RequirePerm any={['booking.read.all','booking.read.own'] as Permission[]}><NameBadgePage /></RequirePerm>} />
           <Route path="waitlist" element={<RequirePerm any={['waitlist.read'] as Permission[]}><WaitlistPage /></RequirePerm>} />
           <Route path="kpi" element={<RequirePerm any={['kpi.read'] as Permission[]}><KpiPage /></RequirePerm>} />
           <Route path="search" element={<SearchPage />} />

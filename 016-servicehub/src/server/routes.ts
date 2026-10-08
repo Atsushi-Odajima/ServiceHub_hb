@@ -15,6 +15,7 @@ import { registerPublicRoutes } from './modules/public/routes.js';
 import { registerReceptionRoutes } from './modules/reception/routes.js';
 import { registerRecordRoutes } from './modules/records/routes.js';
 import { registerLocationRoutes } from './modules/locations/routes.js';
+import { registerNameBadgeRoutes } from './modules/namebadges/routes.js';
 import { registerMemberRoutes } from './modules/members/routes.js';
 import { registerOrgRoutes } from './modules/org/routes.js';
 import { registerResourceRoutes } from './modules/resources/routes.js';
@@ -35,6 +36,7 @@ export async function registerRoutes(app: FastifyInstance, deps: Deps): Promise<
   await registerShiftRoutes(app, deps);
   await registerBookingRoutes(app, deps);
   await registerAnnouncementRoutes(app, deps);
+  await registerNameBadgeRoutes(app, deps);
   await registerCustomerRoutes(app, deps);
   await registerPublicRoutes(app, deps);
   await registerNotificationRoutes(app, deps);

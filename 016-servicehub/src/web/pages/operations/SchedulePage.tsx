@@ -297,6 +297,9 @@ export function SchedulePage() {
       </p>
       {group ? (
         <Modal title={`${fmtTime(group[0].startsAt, group[0].timezone)} ${group[0].serviceName}`} onClose={() => setGroup(null)}>
+          <p>
+            <Link to={`/app/name-badges${qs({ locationId: group[0].locationId, date, serviceId: group[0].serviceId, startsAt: new Date(group[0].startsAt).toISOString() })}`}>この回の名札・受付表を印刷</Link>
+          </p>
           <ul className="list">
             {group.map((b) => (
               <li key={b.id}>

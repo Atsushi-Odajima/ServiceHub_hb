@@ -29,3 +29,8 @@ DB: service postgresql start / ロール servicehub (pw: servicehub_dev_pw) / DB
   統合作業中に見つけた既存の不具合(未修正): PATCH /api/v1/services/:id に一部の項目だけを送ると、
   zod の partial() が既定値を補うため送っていない項目(担当スタッフ・拠点・必要リソース等)が既定値で上書きされる。
   画面は全項目を送るため表に出ていないが、API を部分更新で使う前に直すこと。
+2026-10 追記: #010 名札・受付チェック表メーカーを「ServiceHub 名札・受付表」として統合した
+  (DECISIONS.md D-037、ブランチ claude/merge-name-badges)。画面 /app/name-badges。
+  残り: 画面デザインの調整(プレビューの縮小表示・参加者一覧の折りたたみ等)、実機のプリンターで
+  名札 91mm × 55mm・受付表の印刷位置の確認(Chrome/Edge/Safari の印刷設定)、文字幅の見積もりが
+  厳しすぎて「収まらない」が出る場合の調整(実フォントでの確認)。
